@@ -177,6 +177,7 @@ if(OpenCV2_INCLUDE_DIRS)
   endif()
 endif()
 
+if(OFF)
 if(NOT CMAKE_VERSION VERSION_LESS "2.8.11")
   # Target property INTERFACE_INCLUDE_DIRECTORIES available since 2.8.11:
   # * http://www.cmake.org/cmake/help/v2.8.11/cmake.html#prop_tgt:INTERFACE_INCLUDE_DIRECTORIES
@@ -189,6 +190,7 @@ if(NOT CMAKE_VERSION VERSION_LESS "2.8.11")
       )
     endif()
   endforeach()
+endif()
 endif()
 
 # ==============================================================
