@@ -24,6 +24,8 @@ Keys:
 
 import numpy as np
 import cv2
+
+# local module
 import video
 
 
@@ -81,7 +83,7 @@ class App(object):
                 hsv_roi = hsv[y0:y1, x0:x1]
                 mask_roi = mask[y0:y1, x0:x1]
                 hist = cv2.calcHist( [hsv_roi], [0], mask_roi, [16], [0, 180] )
-                cv2.normalize(hist, hist, 0, 255, cv2.NORM_MINMAX);
+                cv2.normalize(hist, hist, 0, 255, cv2.NORM_MINMAX)
                 self.hist = hist.reshape(-1)
                 self.show_hist()
 
@@ -98,8 +100,10 @@ class App(object):
 
                 if self.show_backproj:
                     vis[:] = prob[...,np.newaxis]
-                try: cv2.ellipse(vis, track_box, (0, 0, 255), 2)
-                except: print track_box
+                try:
+                    cv2.ellipse(vis, track_box, (0, 0, 255), 2)
+                except:
+                    print track_box
 
             cv2.imshow('camshift', vis)
 
@@ -113,7 +117,9 @@ class App(object):
 
 if __name__ == '__main__':
     import sys
-    try: video_src = sys.argv[1]
-    except: video_src = 0
+    try:
+        video_src = sys.argv[1]
+    except:
+        video_src = 0
     print __doc__
     App(video_src).run()

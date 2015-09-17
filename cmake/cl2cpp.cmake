@@ -1,8 +1,25 @@
+if (NOT EXISTS "${CL_DIR}")
+  message(FATAL_ERROR "Specified wrong OpenCL kernels directory: ${CL_DIR}")
+endif()
+
 file(GLOB cl_list "${CL_DIR}/*.cl" )
 list(SORT cl_list)
 
+if (NOT cl_list)
+  message(FATAL_ERROR "Can't find OpenCL kernels in directory: ${CL_DIR}")
+endif()
+
 string(REPLACE ".cpp" ".hpp" OUTPUT_HPP "${OUTPUT}")
 get_filename_component(OUTPUT_HPP_NAME "${OUTPUT_HPP}" NAME)
+
+if("${MODULE_NAME}" STREQUAL "ocl")
+    set(nested_namespace_start "")
+    set(nested_namespace_end "")
+else()
+    set(new_mode ON)
+    set(nested_namespace_start "namespace ${MODULE_NAME}\n{")
+    set(nested_namespace_end "}")
+endif()
 
 set(STR_CPP "// This file is auto-generated. Do not edit!
 
@@ -13,16 +30,21 @@ namespace cv
 {
 namespace ocl
 {
+${nested_namespace_start}
+
 ")
 
 set(STR_HPP "// This file is auto-generated. Do not edit!
 
-#include \"opencv2/ocl/private/util.hpp\"
+#include \"opencv2/core/ocl.hpp\"
+#include \"opencv2/core/ocl_genbase.hpp\"
+#include \"opencv2/core/opencl/ocl_defs.hpp\"
 
 namespace cv
 {
 namespace ocl
 {
+${nested_namespace_start}
 
 ")
 
@@ -49,12 +71,19 @@ foreach(cl ${cl_list})
 
   string(MD5 hash "${lines}")
 
-  set(STR_CPP "${STR_CPP}const struct ProgramEntry ${cl_filename}={\"${cl_filename}\",\n\"${lines}, \"${hash}\"};\n")
-  set(STR_HPP "${STR_HPP}extern const struct ProgramEntry ${cl_filename};\n")
+  set(STR_CPP_DECL "const struct ProgramEntry ${cl_filename}={\"${cl_filename}\",\n\"${lines}, \"${hash}\"};\n")
+  set(STR_HPP_DECL "extern const struct ProgramEntry ${cl_filename};\n")
+  if(new_mode)
+    set(STR_CPP_DECL "${STR_CPP_DECL}ProgramSource ${cl_filename}_oclsrc(${cl_filename}.programStr);\n")
+    set(STR_HPP_DECL "${STR_HPP_DECL}extern ProgramSource ${cl_filename}_oclsrc;\n")
+  endif()
+
+  set(STR_CPP "${STR_CPP}${STR_CPP_DECL}")
+  set(STR_HPP "${STR_HPP}${STR_HPP_DECL}")
 endforeach()
 
-set(STR_CPP "${STR_CPP}}\n}\n")
-set(STR_HPP "${STR_HPP}}\n}\n")
+set(STR_CPP "${STR_CPP}}\n${nested_namespace_end}}\n")
+set(STR_HPP "${STR_HPP}}\n${nested_namespace_end}}\n")
 
 file(WRITE "${OUTPUT}" "${STR_CPP}")
 

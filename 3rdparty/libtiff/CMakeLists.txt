@@ -17,14 +17,14 @@ check_include_file(string.h HAVE_STRING_H)
 check_include_file(sys/types.h HAVE_SYS_TYPES_H)
 check_include_file(unistd.h HAVE_UNISTD_H)
 
-if(WIN32 AND NOT HAVE_WINRT)
+if(WIN32 AND NOT WINRT)
   set(USE_WIN32_FILEIO 1)
 endif()
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/tif_config.h.cmakein"
                "${CMAKE_CURRENT_BINARY_DIR}/tif_config.h" @ONLY)
 
-ocv_include_directories("${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}" ${ZLIB_INCLUDE_DIR})
+ocv_include_directories("${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}" ${ZLIB_INCLUDE_DIRS})
 
 set(lib_srcs
     tif_aux.c
@@ -79,7 +79,7 @@ set(lib_srcs
     "${CMAKE_CURRENT_BINARY_DIR}/tif_config.h"
     )
 
-if(WIN32 AND NOT HAVE_WINRT)
+if(WIN32 AND NOT WINRT)
   list(APPEND lib_srcs tif_win32.c)
 else()
   list(APPEND lib_srcs tif_unix.c)
@@ -107,6 +107,8 @@ set_target_properties(${TIFF_LIBRARY}
     PROPERTIES
     OUTPUT_NAME "${TIFF_LIBRARY}"
     DEBUG_POSTFIX "${OPENCV_DEBUG_POSTFIX}"
+    COMPILE_PDB_NAME ${TIFF_LIBRARY}
+    COMPILE_PDB_NAME_DEBUG "${TIFF_LIBRARY}${OPENCV_DEBUG_POSTFIX}"
     ARCHIVE_OUTPUT_DIRECTORY ${3P_LIBRARY_OUTPUT_PATH}
     )
 
@@ -115,5 +117,5 @@ if(ENABLE_SOLUTION_FOLDERS)
 endif()
 
 if(NOT BUILD_SHARED_LIBS)
-  ocv_install_target(${TIFF_LIBRARY} EXPORT OpenCVModules ARCHIVE DESTINATION ${OPENCV_3P_LIB_INSTALL_PATH} COMPONENT main)
+  ocv_install_target(${TIFF_LIBRARY} EXPORT OpenCVModules ARCHIVE DESTINATION ${OPENCV_3P_LIB_INSTALL_PATH} COMPONENT dev)
 endif()
