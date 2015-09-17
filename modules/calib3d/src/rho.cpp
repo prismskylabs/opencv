@@ -57,6 +57,9 @@
 #include <vector>
 #include "rho.h"
 
+#ifdef __GNUC__
+#  pragma GCC diagnostic ignored "-Wdeprecated-register"
+#endif
 
 
 

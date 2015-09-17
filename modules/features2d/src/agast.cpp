@@ -48,6 +48,9 @@ The references are:
 #ifdef _MSC_VER
 #pragma warning( disable : 4127 )
 #endif
+#ifdef __GNUC__
+#  pragma GCC diagnostic ignored "-Wdeprecated-register"
+#endif
 
 namespace cv
 {
