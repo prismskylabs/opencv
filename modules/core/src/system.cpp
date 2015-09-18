@@ -12,6 +12,7 @@
 //
 // Copyright (C) 2000-2008, Intel Corporation, all rights reserved.
 // Copyright (C) 2009, Willow Garage Inc., all rights reserved.
+// Copyright (C) 2015, Itseez Inc., all rights reserved.
 // Third party copyrights are property of their respective owners.
 //
 // Redistribution and use in source and binary forms, with or without modification,
@@ -42,10 +43,31 @@
 
 #include "precomp.hpp"
 
+namespace cv {
+
+static Mutex* __initialization_mutex = NULL;
+Mutex& getInitializationMutex()
+{
+    if (__initialization_mutex == NULL)
+        __initialization_mutex = new Mutex();
+    return *__initialization_mutex;
+}
+// force initialization (single-threaded environment)
+Mutex* __initialization_mutex_initializer = &getInitializationMutex();
+
+} // namespace cv
+
 #ifdef _MSC_VER
 # if _MSC_VER >= 1700
 #  pragma warning(disable:4447) // Disable warning 'main' signature found without threading model
 # endif
+#endif
+
+#if defined ANDROID || defined __linux__
+#  include <unistd.h>
+#  include <fcntl.h>
+#  include <elf.h>
+#  include <linux/auxvec.h>
 #endif
 
 #if defined WIN32 || defined _WIN32 || defined WINCE
@@ -82,10 +104,26 @@
             pop ebx
         }
     }
+    static void __cpuidex(int* cpuid_data, int, int)
+    {
+        __asm
+        {
+            push edi
+            mov edi, cpuid_data
+            mov eax, 7
+            mov ecx, 0
+            cpuid
+            mov [edi], eax
+            mov [edi + 4], ebx
+            mov [edi + 8], ecx
+            mov [edi + 12], edx
+            pop edi
+        }
+    }
   #endif
 #endif
 
-#ifdef HAVE_WINRT
+#ifdef WINRT
 #include <wrl/client.h>
 #ifndef __cplusplus_winrt
 #include <windows.storage.h>
@@ -135,7 +173,7 @@ std::wstring GetTempFileNameWinRT(std::wstring prefix)
              UINT(g.Data4[2]), UINT(g.Data4[3]), UINT(g.Data4[4]),
              UINT(g.Data4[5]), UINT(g.Data4[6]), UINT(g.Data4[7]));
 
-    return prefix + std::wstring(guidStr);
+    return prefix.append(std::wstring(guidStr));
 }
 
 #endif
@@ -163,8 +201,6 @@ std::wstring GetTempFileNameWinRT(std::wstring prefix)
 #include <sys/types.h>
 #if defined ANDROID
 #include <sys/sysconf.h>
-#else
-#include <sys/sysctl.h>
 #endif
 #endif
 
@@ -177,7 +213,7 @@ namespace cv
 
 Exception::Exception() { code = 0; line = 0; }
 
-Exception::Exception(int _code, const string& _err, const string& _func, const string& _file, int _line)
+Exception::Exception(int _code, const String& _err, const String& _func, const String& _file, int _line)
 : code(_code), err(_err), func(_func), file(_file), line(_line)
 {
     formatMessage();
@@ -203,7 +239,7 @@ struct HWFeatures
     enum { MAX_FEATURE = CV_HARDWARE_MAX_FEATURE };
 
     HWFeatures(void)
-     {
+    {
         memset( have, 0, sizeof(have) );
         x86_family = 0;
     }
@@ -247,11 +283,81 @@ struct HWFeatures
             f.have[CV_CPU_SSE2]   = (cpuid_data[3] & (1<<26)) != 0;
             f.have[CV_CPU_SSE3]   = (cpuid_data[2] & (1<<0)) != 0;
             f.have[CV_CPU_SSSE3]  = (cpuid_data[2] & (1<<9)) != 0;
+            f.have[CV_CPU_FMA3]  = (cpuid_data[2] & (1<<12)) != 0;
             f.have[CV_CPU_SSE4_1] = (cpuid_data[2] & (1<<19)) != 0;
             f.have[CV_CPU_SSE4_2] = (cpuid_data[2] & (1<<20)) != 0;
             f.have[CV_CPU_POPCNT] = (cpuid_data[2] & (1<<23)) != 0;
             f.have[CV_CPU_AVX]    = (((cpuid_data[2] & (1<<28)) != 0)&&((cpuid_data[2] & (1<<27)) != 0));//OS uses XSAVE_XRSTORE and CPU support AVX
+
+            // make the second call to the cpuid command in order to get
+            // information about extended features like AVX2
+        #if defined _MSC_VER && (defined _M_IX86 || defined _M_X64)
+            __cpuidex(cpuid_data, 7, 0);
+        #elif defined __GNUC__ && (defined __i386__ || defined __x86_64__)
+            #ifdef __x86_64__
+            asm __volatile__
+            (
+             "movl $7, %%eax\n\t"
+             "movl $0, %%ecx\n\t"
+             "cpuid\n\t"
+             :[eax]"=a"(cpuid_data[0]),[ebx]"=b"(cpuid_data[1]),[ecx]"=c"(cpuid_data[2]),[edx]"=d"(cpuid_data[3])
+             :
+             : "cc"
+            );
+            #else
+            asm volatile
+            (
+             "pushl %%ebx\n\t"
+             "movl $7,%%eax\n\t"
+             "movl $0,%%ecx\n\t"
+             "cpuid\n\t"
+             "movl %%ebx, %0\n\t"
+             "popl %%ebx\n\t"
+             : "=r"(cpuid_data[1]), "=c"(cpuid_data[2])
+             :
+             : "cc"
+            );
+            #endif
+        #endif
+            f.have[CV_CPU_AVX2]   = (cpuid_data[1] & (1<<5)) != 0;
+
+            f.have[CV_CPU_AVX_512F]       = (cpuid_data[1] & (1<<16)) != 0;
+            f.have[CV_CPU_AVX_512DQ]      = (cpuid_data[1] & (1<<17)) != 0;
+            f.have[CV_CPU_AVX_512IFMA512] = (cpuid_data[1] & (1<<21)) != 0;
+            f.have[CV_CPU_AVX_512PF]      = (cpuid_data[1] & (1<<26)) != 0;
+            f.have[CV_CPU_AVX_512ER]      = (cpuid_data[1] & (1<<27)) != 0;
+            f.have[CV_CPU_AVX_512CD]      = (cpuid_data[1] & (1<<28)) != 0;
+            f.have[CV_CPU_AVX_512BW]      = (cpuid_data[1] & (1<<30)) != 0;
+            f.have[CV_CPU_AVX_512VL]      = (cpuid_data[1] & (1<<31)) != 0;
+            f.have[CV_CPU_AVX_512VBMI]    = (cpuid_data[2] &  (1<<1)) != 0;
         }
+
+    #if defined ANDROID || defined __linux__
+    #ifdef __aarch64__
+        f.have[CV_CPU_NEON] = true;
+    #else
+        int cpufile = open("/proc/self/auxv", O_RDONLY);
+
+        if (cpufile >= 0)
+        {
+            Elf32_auxv_t auxv;
+            const size_t size_auxv_t = sizeof(auxv);
+
+            while ((size_t)read(cpufile, &auxv, size_auxv_t) == size_auxv_t)
+            {
+                if (auxv.a_type == AT_HWCAP)
+                {
+                    f.have[CV_CPU_NEON] = (auxv.a_un.a_val & 4096) != 0;
+                    break;
+                }
+            }
+
+            close(cpufile);
+        }
+    #endif
+    #elif (defined __clang__ || defined __APPLE__) && (defined __ARM_NEON__ || (defined __ARM_NEON && defined __aarch64__))
+        f.have[CV_CPU_NEON] = true;
+    #endif
 
         return f;
     }
@@ -274,7 +380,14 @@ volatile bool useOptimizedFlag = true;
 #ifdef HAVE_IPP
 struct IPPInitializer
 {
-    IPPInitializer(void) { ippStaticInit(); }
+    IPPInitializer(void)
+    {
+#if IPP_VERSION_MAJOR >= 8
+        ippInit();
+#else
+        ippStaticInit();
+#endif
+    }
 };
 
 IPPInitializer ippInitializer;
@@ -283,12 +396,19 @@ IPPInitializer ippInitializer;
 volatile bool USE_SSE2 = featuresEnabled.have[CV_CPU_SSE2];
 volatile bool USE_SSE4_2 = featuresEnabled.have[CV_CPU_SSE4_2];
 volatile bool USE_AVX = featuresEnabled.have[CV_CPU_AVX];
+volatile bool USE_AVX2 = featuresEnabled.have[CV_CPU_AVX2];
 
 void setUseOptimized( bool flag )
 {
     useOptimizedFlag = flag;
     currentFeatures = flag ? &featuresEnabled : &featuresDisabled;
     USE_SSE2 = currentFeatures->have[CV_CPU_SSE2];
+
+    ipp::setUseIPP(flag);
+    ocl::setUseOpenCL(flag);
+#ifdef HAVE_TEGRA_OPTIMIZATION
+    ::tegra::setUseTegra(flag);
+#endif
 }
 
 bool useOptimized(void)
@@ -390,68 +510,72 @@ int64 getCPUTickCount(void)
 
 #else
 
-#ifdef HAVE_IPP
-int64 getCPUTickCount(void)
-{
-    return ippGetCpuClocks();
-}
-#else
+//#ifdef HAVE_IPP
+//int64 getCPUTickCount(void)
+//{
+//    return ippGetCpuClocks();
+//}
+//#else
 int64 getCPUTickCount(void)
 {
     return getTickCount();
 }
-#endif
+//#endif
 
 #endif
 
-const std::string& getBuildInformation()
+const String& getBuildInformation()
 {
-    static std::string build_info =
+    static String build_info =
 #include "version_string.inc"
     ;
     return build_info;
 }
 
-string format( const char* fmt, ... )
+String format( const char* fmt, ... )
 {
-    char buf[1 << 16];
-    va_list args;
-    va_start( args, fmt );
-    vsprintf( buf, fmt, args );
-    return string(buf);
+    AutoBuffer<char, 1024> buf;
+
+    for ( ; ; )
+    {
+        va_list va;
+        va_start(va, fmt);
+        int bsize = static_cast<int>(buf.size()),
+                len = vsnprintf((char *)buf, bsize, fmt, va);
+        va_end(va);
+
+        if (len < 0 || len >= bsize)
+        {
+            buf.resize(std::max(bsize << 1, len + 1));
+            continue;
+        }
+        return String((char *)buf, len);
+    }
 }
 
-string tempfile( const char* suffix )
+String tempfile( const char* suffix )
 {
-#ifdef HAVE_WINRT
-    std::wstring temp_dir = L"";
-    const wchar_t* opencv_temp_dir = _wgetenv(L"OPENCV_TEMP_PATH");
-    if (opencv_temp_dir)
-        temp_dir = std::wstring(opencv_temp_dir);
-#else
+    String fname;
+#ifndef WINRT
     const char *temp_dir = getenv("OPENCV_TEMP_PATH");
 #endif
-    string fname;
 
 #if defined WIN32 || defined _WIN32
-#ifdef HAVE_WINRT
+#ifdef WINRT
     RoInitialize(RO_INIT_MULTITHREADED);
-    std::wstring temp_dir2;
-    if (temp_dir.empty())
-        temp_dir = GetTempPathWinRT();
+    std::wstring temp_dir = GetTempPathWinRT();
 
-    std::wstring temp_file;
-    temp_file = GetTempFileNameWinRT(L"ocv");
+    std::wstring temp_file = GetTempFileNameWinRT(L"ocv");
     if (temp_file.empty())
-        return std::string();
+        return String();
 
-    temp_file = temp_dir + std::wstring(L"\\") + temp_file;
+    temp_file = temp_dir.append(std::wstring(L"\\")).append(temp_file);
     DeleteFileW(temp_file.c_str());
 
     char aname[MAX_PATH];
     size_t copied = wcstombs(aname, temp_file.c_str(), MAX_PATH);
     CV_Assert((copied != MAX_PATH) && (copied != (size_t)-1));
-    fname = std::string(aname);
+    fname = String(aname);
     RoUninitialize();
 #else
     char temp_dir2[MAX_PATH] = { 0 };
@@ -463,7 +587,7 @@ string tempfile( const char* suffix )
         temp_dir = temp_dir2;
     }
     if(0 == ::GetTempFileNameA(temp_dir, "ocv", 0, temp_file))
-        return string();
+        return String();
 
     DeleteFileA(temp_file);
 
@@ -484,12 +608,12 @@ string tempfile( const char* suffix )
         fname = temp_dir;
         char ech = fname[fname.size() - 1];
         if(ech != '/' && ech != '\\')
-            fname += "/";
-        fname += "__opencv_temp.XXXXXX";
+            fname = fname + "/";
+        fname = fname + "__opencv_temp.XXXXXX";
     }
 
     const int fd = mkstemp((char*)fname.c_str());
-    if (fd == -1) return string();
+    if (fd == -1) return String();
 
     close(fd);
     remove(fname.c_str());
@@ -543,6 +667,11 @@ void error( const Exception& exc )
     }
 
     throw exc;
+}
+
+void error(int _code, const String& _err, const char* _func, const char* _file, int _line)
+{
+    error(cv::Exception(_code, _err, _func, _file, _line));
 }
 
 CvErrorCallback
@@ -648,7 +777,7 @@ CV_IMPL const char* cvErrorStr( int status )
     case CV_StsNotImplemented :      return "The function/feature is not implemented";
     case CV_StsBadMemBlock :         return "Memory block has been corrupted";
     case CV_StsAssert :              return "Assertion failed";
-    case CV_GpuNotSupported :        return "No GPU support";
+    case CV_GpuNotSupported :        return "No CUDA support";
     case CV_GpuApiCallError :        return "Gpu API call";
     case CV_OpenGlNotSupported :     return "No OpenGL support";
     case CV_OpenGlApiCallError :     return "OpenGL API call";
@@ -717,124 +846,8 @@ cvErrorFromIppStatus( int status )
     }
 }
 
-static CvModuleInfo cxcore_info = { 0, "cxcore", CV_VERSION, 0 };
-
-CvModuleInfo* CvModule::first = 0, *CvModule::last = 0;
-
-CvModule::CvModule( CvModuleInfo* _info )
-{
-    cvRegisterModule( _info );
-    info = last;
-}
-
-CvModule::~CvModule(void)
-{
-    if( info )
-    {
-        CvModuleInfo* p = first;
-        for( ; p != 0 && p->next != info; p = p->next )
-            ;
-
-        if( p )
-            p->next = info->next;
-
-        if( first == info )
-            first = info->next;
-
-        if( last == info )
-            last = p;
-
-        free( info );
-        info = 0;
-    }
-}
-
-CV_IMPL int
-cvRegisterModule( const CvModuleInfo* module )
-{
-    CV_Assert( module != 0 && module->name != 0 && module->version != 0 );
-
-    size_t name_len = strlen(module->name);
-    size_t version_len = strlen(module->version);
-
-    CvModuleInfo* module_copy = (CvModuleInfo*)malloc( sizeof(*module_copy) +
-                                name_len + 1 + version_len + 1 );
-
-    *module_copy = *module;
-    module_copy->name = (char*)(module_copy + 1);
-    module_copy->version = (char*)(module_copy + 1) + name_len + 1;
-
-    memcpy( (void*)module_copy->name, module->name, name_len + 1 );
-    memcpy( (void*)module_copy->version, module->version, version_len + 1 );
-    module_copy->next = 0;
-
-    if( CvModule::first == 0 )
-        CvModule::first = module_copy;
-    else
-        CvModule::last->next = module_copy;
-
-    CvModule::last = module_copy;
-
-    return 0;
-}
-
-CvModule cxcore_module( &cxcore_info );
-
-CV_IMPL void
-cvGetModuleInfo( const char* name, const char **version, const char **plugin_list )
-{
-    static char joint_verinfo[1024]   = "";
-    static char plugin_list_buf[1024] = "";
-
-    if( version )
-        *version = 0;
-
-    if( plugin_list )
-        *plugin_list = 0;
-
-    CvModuleInfo* module;
-
-    if( version )
-    {
-        if( name )
-        {
-            size_t i, name_len = strlen(name);
-
-            for( module = CvModule::first; module != 0; module = module->next )
-            {
-                if( strlen(module->name) == name_len )
-                {
-                    for( i = 0; i < name_len; i++ )
-                    {
-                        int c0 = toupper(module->name[i]), c1 = toupper(name[i]);
-                        if( c0 != c1 )
-                            break;
-                    }
-                    if( i == name_len )
-                        break;
-                }
-            }
-            if( !module )
-                CV_Error( CV_StsObjectNotFound, "The module is not found" );
-
-            *version = module->version;
-        }
-        else
-        {
-            char* ptr = joint_verinfo;
-
-            for( module = CvModule::first; module != 0; module = module->next )
-            {
-                sprintf( ptr, "%s: %s%s", module->name, module->version, module->next ? ", " : "" );
-                ptr += strlen(ptr);
-            }
-
-            *version = joint_verinfo;
-        }
-    }
-
-    if( plugin_list )
-        *plugin_list = plugin_list_buf;
+namespace cv {
+bool __termination = false;
 }
 
 namespace cv
@@ -863,61 +876,27 @@ struct Mutex::Impl
     int refcount;
 };
 
-#ifndef __GNUC__
-int _interlockedExchangeAdd(int* addr, int delta)
-{
-#if defined _MSC_VER && _MSC_VER >= 1500
-    return (int)_InterlockedExchangeAdd((long volatile*)addr, delta);
-#else
-    return (int)InterlockedExchangeAdd((long volatile*)addr, delta);
-#endif
-}
-#endif // __GNUC__
-
-#elif defined __APPLE__
-
-#include <libkern/OSAtomic.h>
-
-struct Mutex::Impl
-{
-    Impl() { sl = OS_SPINLOCK_INIT; refcount = 1; }
-    ~Impl() {}
-
-    void lock() { OSSpinLockLock(&sl); }
-    bool trylock() { return OSSpinLockTry(&sl); }
-    void unlock() { OSSpinLockUnlock(&sl); }
-
-    OSSpinLock sl;
-    int refcount;
-};
-
-#elif defined __linux__ && !defined ANDROID
-
-struct Mutex::Impl
-{
-    Impl() { pthread_spin_init(&sl, 0); refcount = 1; }
-    ~Impl() { pthread_spin_destroy(&sl); }
-
-    void lock() { pthread_spin_lock(&sl); }
-    bool trylock() { return pthread_spin_trylock(&sl) == 0; }
-    void unlock() { pthread_spin_unlock(&sl); }
-
-    pthread_spinlock_t sl;
-    int refcount;
-};
-
 #else
 
 struct Mutex::Impl
 {
-    Impl() { pthread_mutex_init(&sl, 0); refcount = 1; }
-    ~Impl() { pthread_mutex_destroy(&sl); }
+    Impl()
+    {
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(&mt, &attr);
+        pthread_mutexattr_destroy(&attr);
 
-    void lock() { pthread_mutex_lock(&sl); }
-    bool trylock() { return pthread_mutex_trylock(&sl) == 0; }
-    void unlock() { pthread_mutex_unlock(&sl); }
+        refcount = 1;
+    }
+    ~Impl() { pthread_mutex_destroy(&mt); }
 
-    pthread_mutex_t sl;
+    void lock() { pthread_mutex_lock(&mt); }
+    bool trylock() { return pthread_mutex_trylock(&mt) == 0; }
+    void unlock() { pthread_mutex_unlock(&mt); }
+
+    pthread_mutex_t mt;
     int refcount;
 };
 
@@ -957,220 +936,424 @@ bool Mutex::trylock() { return impl->trylock(); }
 
 //////////////////////////////// thread-local storage ////////////////////////////////
 
-class TLSStorage
-{
-    std::vector<void*> tlsData_;
-public:
-    TLSStorage() { tlsData_.reserve(16); }
-    ~TLSStorage();
-    inline void* getData(int key) const
-    {
-        CV_DbgAssert(key >= 0);
-        return (key < (int)tlsData_.size()) ? tlsData_[key] : NULL;
-    }
-    inline void setData(int key, void* data)
-    {
-        CV_DbgAssert(key >= 0);
-        if (key >= (int)tlsData_.size())
-        {
-            tlsData_.resize(key + 1, NULL);
-        }
-        tlsData_[key] = data;
-    }
+#ifdef WIN32
+#ifdef _MSC_VER
+#pragma warning(disable:4505) // unreferenced local function has been removed
+#endif
+#ifndef TLS_OUT_OF_INDEXES
+#define TLS_OUT_OF_INDEXES ((DWORD)0xFFFFFFFF)
+#endif
+#endif
 
-    inline static TLSStorage* get();
+// TLS platform abstraction layer
+class TlsAbstraction
+{
+public:
+    TlsAbstraction();
+    ~TlsAbstraction();
+    void* GetData() const;
+    void  SetData(void *pData);
+
+private:
+#ifdef WIN32
+#ifndef WINRT
+    DWORD tlsKey;
+#endif
+#else // WIN32
+    pthread_key_t  tlsKey;
+#endif
 };
 
 #ifdef WIN32
-#pragma warning(disable:4505) // unreferenced local function has been removed
-
-#ifdef HAVE_WINRT
-    // using C++11 thread attribute for local thread data
-    static __declspec( thread ) TLSStorage* g_tlsdata = NULL;
-
-    static void deleteThreadData()
-    {
-        if (g_tlsdata)
-        {
-            delete g_tlsdata;
-            g_tlsdata = NULL;
-        }
-    }
-
-    inline TLSStorage* TLSStorage::get()
-    {
-        if (!g_tlsdata)
-        {
-            g_tlsdata = new TLSStorage;
-        }
-        return g_tlsdata;
-    }
-#else
-#ifdef WINCE
-#   define TLS_OUT_OF_INDEXES ((DWORD)0xFFFFFFFF)
-#endif
-    static DWORD tlsKey = TLS_OUT_OF_INDEXES;
-
-    static void deleteThreadData()
-    {
-        if(tlsKey != TLS_OUT_OF_INDEXES)
-        {
-            delete (TLSStorage*)TlsGetValue(tlsKey);
-            TlsSetValue(tlsKey, NULL);
-        }
-    }
-
-    inline TLSStorage* TLSStorage::get()
-    {
-        if (tlsKey == TLS_OUT_OF_INDEXES)
-        {
-            tlsKey = TlsAlloc();
-            CV_Assert(tlsKey != TLS_OUT_OF_INDEXES);
-        }
-        TLSStorage* d = (TLSStorage*)TlsGetValue(tlsKey);
-        if (!d)
-        {
-            d = new TLSStorage;
-            TlsSetValue(tlsKey, d);
-        }
-        return d;
-    }
-#endif //HAVE_WINRT
-
-#if defined CVAPI_EXPORTS && defined WIN32 && !defined WINCE
-#ifdef HAVE_WINRT
-    #pragma warning(disable:4447) // Disable warning 'main' signature found without threading model
-#endif
-
-BOOL WINAPI DllMain(HINSTANCE, DWORD fdwReason, LPVOID);
-
-BOOL WINAPI DllMain(HINSTANCE, DWORD fdwReason, LPVOID)
+#ifdef WINRT
+static __declspec( thread ) void* tlsData = NULL; // using C++11 thread attribute for local thread data
+TlsAbstraction::TlsAbstraction() {}
+TlsAbstraction::~TlsAbstraction() {}
+void* TlsAbstraction::GetData() const
 {
-    if (fdwReason == DLL_THREAD_DETACH || fdwReason == DLL_PROCESS_DETACH)
-    {
-        cv::deleteThreadAllocData();
-        cv::deleteThreadRNGData();
-        cv::deleteThreadData();
-    }
-    return TRUE;
+    return tlsData;
+}
+void  TlsAbstraction::SetData(void *pData)
+{
+    tlsData = pData;
+}
+#else //WINRT
+TlsAbstraction::TlsAbstraction()
+{
+    tlsKey = TlsAlloc();
+    CV_Assert(tlsKey != TLS_OUT_OF_INDEXES);
+}
+TlsAbstraction::~TlsAbstraction()
+{
+    TlsFree(tlsKey);
+}
+void* TlsAbstraction::GetData() const
+{
+    return TlsGetValue(tlsKey);
+}
+void  TlsAbstraction::SetData(void *pData)
+{
+    CV_Assert(TlsSetValue(tlsKey, pData) == TRUE);
+}
+#endif
+#else // WIN32
+TlsAbstraction::TlsAbstraction()
+{
+    CV_Assert(pthread_key_create(&tlsKey, NULL) == 0);
+}
+TlsAbstraction::~TlsAbstraction()
+{
+    CV_Assert(pthread_key_delete(tlsKey) == 0);
+}
+void* TlsAbstraction::GetData() const
+{
+    return pthread_getspecific(tlsKey);
+}
+void  TlsAbstraction::SetData(void *pData)
+{
+    CV_Assert(pthread_setspecific(tlsKey, pData) == 0);
 }
 #endif
 
-#else
-    static pthread_key_t tlsKey = 0;
-    static pthread_once_t tlsKeyOnce = PTHREAD_ONCE_INIT;
-
-    static void deleteTLSStorage(void* data)
-    {
-        delete (TLSStorage*)data;
-    }
-
-    static void makeKey()
-    {
-        int errcode = pthread_key_create(&tlsKey, deleteTLSStorage);
-        CV_Assert(errcode == 0);
-    }
-
-    inline TLSStorage* TLSStorage::get()
-    {
-        pthread_once(&tlsKeyOnce, makeKey);
-        TLSStorage* d = (TLSStorage*)pthread_getspecific(tlsKey);
-        if( !d )
-        {
-            d = new TLSStorage;
-            pthread_setspecific(tlsKey, d);
-        }
-        return d;
-    }
-#endif
-
-class TLSContainerStorage
+// Per-thread data structure
+struct ThreadData
 {
-    cv::Mutex mutex_;
-    std::vector<TLSDataContainer*> tlsContainers_;
-public:
-    TLSContainerStorage() { }
-    ~TLSContainerStorage()
+    ThreadData()
     {
-        for (size_t i = 0; i < tlsContainers_.size(); i++)
-        {
-            CV_DbgAssert(tlsContainers_[i] == NULL); // not all keys released
-            tlsContainers_[i] = NULL;
-        }
+        idx = 0;
+        slots.reserve(32);
     }
 
-    int allocateKey(TLSDataContainer* pContainer)
-    {
-        cv::AutoLock lock(mutex_);
-        tlsContainers_.push_back(pContainer);
-        return (int)tlsContainers_.size() - 1;
-    }
-    void releaseKey(int id, TLSDataContainer* pContainer)
-    {
-        cv::AutoLock lock(mutex_);
-        CV_Assert(tlsContainers_[id] == pContainer);
-        tlsContainers_[id] = NULL;
-        // currently, we don't go into thread's TLSData and release data for this key
-    }
-
-    void destroyData(int key, void* data)
-    {
-        cv::AutoLock lock(mutex_);
-        TLSDataContainer* k = tlsContainers_[key];
-        if (!k)
-            return;
-        try
-        {
-            k->deleteDataInstance(data);
-        }
-        catch (...)
-        {
-            CV_DbgAssert(k == NULL); // Debug this!
-        }
-    }
+    std::vector<void*> slots; // Data array for a thread
+    size_t idx;               // Thread index in TLS storage. This is not OS thread ID!
 };
-static TLSContainerStorage tlsContainerStorage;
+
+// Main TLS storage class
+class TlsStorage
+{
+public:
+    TlsStorage()
+    {
+        tlsSlots = 0;
+        threads.reserve(32);
+    }
+    ~TlsStorage()
+    {
+        for(size_t i = 0; i < threads.size(); i++)
+        {
+            if(threads[i])
+            {
+                /* Current architecture doesn't allow proper global objects relase, so this check can cause crashes
+
+                // Check if all slots were properly cleared
+                for(size_t j = 0; j < threads[i]->slots.size(); j++)
+                {
+                    CV_Assert(threads[i]->slots[j] == 0);
+                }
+                */
+                delete threads[i];
+            }
+        }
+        threads.clear();
+    }
+
+    void releaseThread()
+    {
+        AutoLock guard(mtxGlobalAccess);
+        ThreadData *pTD = (ThreadData*)tls.GetData();
+        for(size_t i = 0; i < threads.size(); i++)
+        {
+            if(pTD == threads[i])
+            {
+                threads[i] = 0;
+                break;
+            }
+        }
+        tls.SetData(0);
+        delete pTD;
+    }
+
+    // Reserve TLS storage index
+    size_t reserveSlot()
+    {
+        AutoLock guard(mtxGlobalAccess);
+        tlsSlots++;
+        return (tlsSlots-1);
+    }
+
+    // Release TLS storage index and pass assosiated data to caller
+    void releaseSlot(size_t slotIdx, std::vector<void*> &dataVec)
+    {
+        AutoLock guard(mtxGlobalAccess);
+        CV_Assert(tlsSlots > slotIdx);
+
+        for(size_t i = 0; i < threads.size(); i++)
+        {
+            std::vector<void*>& thread_slots = threads[i]->slots;
+            if (thread_slots.size() > slotIdx && thread_slots[slotIdx])
+            {
+                dataVec.push_back(thread_slots[slotIdx]);
+                threads[i]->slots[slotIdx] = 0;
+            }
+        }
+        // If we removing last element, decriment slots size to save space
+        if(tlsSlots-1 == slotIdx)
+            tlsSlots--;
+    }
+
+    // Get data by TLS storage index
+    void* getData(size_t slotIdx) const
+    {
+        CV_Assert(tlsSlots > slotIdx);
+
+        ThreadData* threadData = (ThreadData*)tls.GetData();
+        if(threadData && threadData->slots.size() > slotIdx)
+            return threadData->slots[slotIdx];
+
+        return NULL;
+    }
+
+    // Set data to storage index
+    void setData(size_t slotIdx, void* pData)
+    {
+        CV_Assert(pData != NULL);
+
+        ThreadData* threadData = (ThreadData*)tls.GetData();
+        if(!threadData)
+        {
+            threadData = new ThreadData;
+            tls.SetData((void*)threadData);
+            {
+                AutoLock guard(mtxGlobalAccess);
+                threadData->idx = threads.size();
+                threads.push_back(threadData);
+            }
+        }
+
+        if(slotIdx >= threadData->slots.size())
+            threadData->slots.resize(slotIdx+1);
+        threadData->slots[slotIdx] = pData;
+    }
+
+private:
+    TlsAbstraction tls; // TLS abstraction layer instance
+
+    Mutex  mtxGlobalAccess;           // Shared objects operation guard
+    size_t tlsSlots;                  // TLS storage counter
+    std::vector<ThreadData*> threads; // Array for all allocated data. Thread data pointers are placed here to allow data cleanup
+};
+
+// Create global TLS storage object
+static TlsStorage &getTlsStorage()
+{
+    CV_SINGLETON_LAZY_INIT_REF(TlsStorage, new TlsStorage())
+}
 
 TLSDataContainer::TLSDataContainer()
-    : key_(-1)
 {
-    key_ = tlsContainerStorage.allocateKey(this);
+    key_ = (int)getTlsStorage().reserveSlot(); // Reserve key from TLS storage
 }
 
 TLSDataContainer::~TLSDataContainer()
 {
-    tlsContainerStorage.releaseKey(key_, this);
+    CV_Assert(key_ == -1); // Key must be released in child object
+}
+
+void TLSDataContainer::release()
+{
+    std::vector<void*> data;
+    data.reserve(32);
+    getTlsStorage().releaseSlot(key_, data); // Release key and get stored data for proper destruction
+    for(size_t i = 0; i < data.size(); i++)  // Delete all assosiated data
+        deleteDataInstance(data[i]);
     key_ = -1;
 }
 
 void* TLSDataContainer::getData() const
 {
-    CV_Assert(key_ >= 0);
-    TLSStorage* tlsData = TLSStorage::get();
-    void* data = tlsData->getData(key_);
-    if (!data)
+    void* pData = getTlsStorage().getData(key_); // Check if data was already allocated
+    if(!pData)
     {
-        data = this->createDataInstance();
-        CV_DbgAssert(data != NULL);
-        tlsData->setData(key_, data);
+        // Create new data instance and save it to TLS storage
+        pData = createDataInstance();
+        getTlsStorage().setData(key_, pData);
     }
-    return data;
+    return pData;
 }
 
-TLSStorage::~TLSStorage()
+TLSData<CoreTLSData>& getCoreTlsData()
 {
-    for (int i = 0; i < (int)tlsData_.size(); i++)
+    CV_SINGLETON_LAZY_INIT_REF(TLSData<CoreTLSData>, new TLSData<CoreTLSData>())
+}
+
+#if defined CVAPI_EXPORTS && defined WIN32 && !defined WINCE
+#ifdef WINRT
+    #pragma warning(disable:4447) // Disable warning 'main' signature found without threading model
+#endif
+
+extern "C"
+BOOL WINAPI DllMain(HINSTANCE, DWORD fdwReason, LPVOID lpReserved);
+
+extern "C"
+BOOL WINAPI DllMain(HINSTANCE, DWORD fdwReason, LPVOID lpReserved)
+{
+    if (fdwReason == DLL_THREAD_DETACH || fdwReason == DLL_PROCESS_DETACH)
     {
-        void*& data = tlsData_[i];
-        if (data)
+        if (lpReserved != NULL) // called after ExitProcess() call
         {
-            tlsContainerStorage.destroyData(i, data);
-            data = NULL;
+            cv::__termination = true;
+        }
+        else
+        {
+            // Not allowed to free resources if lpReserved is non-null
+            // http://msdn.microsoft.com/en-us/library/windows/desktop/ms682583.aspx
+            cv::deleteThreadAllocData();
+            cv::getTlsStorage().releaseThread();
         }
     }
-    tlsData_.clear();
+    return TRUE;
+}
+#endif
+
+#ifdef CV_COLLECT_IMPL_DATA
+ImplCollector& getImplData()
+{
+    CV_SINGLETON_LAZY_INIT_REF(ImplCollector, new ImplCollector())
 }
 
+void setImpl(int flags)
+{
+    cv::AutoLock lock(getImplData().mutex);
+
+    getImplData().implFlags = flags;
+    getImplData().implCode.clear();
+    getImplData().implFun.clear();
+}
+
+void addImpl(int flag, const char* func)
+{
+    cv::AutoLock lock(getImplData().mutex);
+
+    getImplData().implFlags |= flag;
+    if(func) // use lazy collection if name was not specified
+    {
+        size_t index = getImplData().implCode.size();
+        if(!index || (getImplData().implCode[index-1] != flag || getImplData().implFun[index-1].compare(func))) // avoid duplicates
+        {
+            getImplData().implCode.push_back(flag);
+            getImplData().implFun.push_back(func);
+        }
+    }
+}
+
+int getImpl(std::vector<int> &impl, std::vector<String> &funName)
+{
+    cv::AutoLock lock(getImplData().mutex);
+
+    impl    = getImplData().implCode;
+    funName = getImplData().implFun;
+    return getImplData().implFlags; // return actual flags for lazy collection
+}
+
+bool useCollection()
+{
+    return getImplData().useCollection;
+}
+
+void setUseCollection(bool flag)
+{
+    cv::AutoLock lock(getImplData().mutex);
+
+    getImplData().useCollection = flag;
+}
+#endif
+
+namespace ipp
+{
+
+static int ippStatus = 0; // 0 - all is ok, -1 - IPP functions failed
+static const char * funcname = NULL, * filename = NULL;
+static int linen = 0;
+
+void setIppStatus(int status, const char * const _funcname, const char * const _filename, int _line)
+{
+    ippStatus = status;
+    funcname = _funcname;
+    filename = _filename;
+    linen = _line;
+}
+
+int getIppStatus()
+{
+    return ippStatus;
+}
+
+String getIppErrorLocation()
+{
+    return format("%s:%d %s", filename ? filename : "", linen, funcname ? funcname : "");
+}
+
+bool useIPP()
+{
+#ifdef HAVE_IPP
+    CoreTLSData* data = getCoreTlsData().get();
+    if(data->useIPP < 0)
+    {
+        const char* pIppEnv = getenv("OPENCV_IPP");
+        if(pIppEnv && (cv::String(pIppEnv) == "disabled"))
+            data->useIPP = false;
+        else
+            data->useIPP = true;
+    }
+    return (data->useIPP > 0);
+#else
+    return false;
+#endif
+}
+
+void setUseIPP(bool flag)
+{
+    CoreTLSData* data = getCoreTlsData().get();
+#ifdef HAVE_IPP
+    data->useIPP = flag;
+#else
+    (void)flag;
+    data->useIPP = false;
+#endif
+}
+
+} // namespace ipp
+
 } // namespace cv
+
+#ifdef HAVE_TEGRA_OPTIMIZATION
+
+namespace tegra {
+
+bool useTegra()
+{
+    cv::CoreTLSData* data = cv::getCoreTlsData().get();
+
+    if (data->useTegra < 0)
+    {
+        const char* pTegraEnv = getenv("OPENCV_TEGRA");
+        if (pTegraEnv && (cv::String(pTegraEnv) == "disabled"))
+            data->useTegra = false;
+        else
+            data->useTegra = true;
+    }
+
+    return (data->useTegra > 0);
+}
+
+void setUseTegra(bool flag)
+{
+    cv::CoreTLSData* data = cv::getCoreTlsData().get();
+    data->useTegra = flag;
+}
+
+} // namespace tegra
+
+#endif
 
 /* End of file. */

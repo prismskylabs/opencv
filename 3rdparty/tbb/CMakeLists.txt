@@ -82,24 +82,8 @@ endif()
 set(tbb_tarball "${CMAKE_CURRENT_SOURCE_DIR}/${tbb_ver}_src.tgz")
 set(tbb_src_dir "${CMAKE_CURRENT_BINARY_DIR}/${tbb_ver}")
 
-macro(getMD5 filename varname)
-  if(CMAKE_VERSION VERSION_GREATER 2.8.6)
-    file(MD5 "${filename}" ${varname})
-  else()
-    execute_process(COMMAND ${CMAKE_COMMAND} -E md5sum "${filename}"
-              RESULT_VARIABLE getMD5_RESULT
-              OUTPUT_VARIABLE getMD5_OUTPUT
-              OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(getMD5_RESULT EQUAL 0)
-      string(REGEX MATCH "^[a-z0-9]+" ${varname} "${getMD5_OUTPUT}")
-    else()
-      set(${varname} "invalid_md5")
-    endif()
-  endif()
-endmacro()
-
 if(EXISTS "${tbb_tarball}")
-  getMD5("${tbb_tarball}" tbb_local_md5)
+  file(MD5 "${tbb_tarball}" tbb_local_md5)
   if(NOT tbb_local_md5 STREQUAL tbb_md5)
     message(WARNING "Local copy of TBB source tarball has invalid MD5 hash: ${tbb_local_md5} (expected: ${tbb_md5})")
     file(REMOVE "${tbb_tarball}")
@@ -115,7 +99,7 @@ if(NOT EXISTS "${tbb_tarball}")
   if(NOT __statvar EQUAL 0)
     message(FATAL_ERROR "Failed to download TBB sources: ${tbb_url}")
   endif()
-  getMD5("${tbb_tarball}" tbb_local_md5)
+  file(MD5 "${tbb_tarball}" tbb_local_md5)
   if(NOT tbb_local_md5 STREQUAL tbb_md5)
     file(REMOVE "${tbb_tarball}")
     message(FATAL_ERROR "Downloaded TBB source tarball has invalid MD5 hash: ${tbb_local_md5} (expected: ${tbb_md5})")
@@ -228,7 +212,13 @@ else()
 endif()
 
 ocv_warnings_disable(CMAKE_CXX_FLAGS -Wundef -Wmissing-declarations)
-string(REPLACE "-Werror=non-virtual-dtor" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
+# filter out flags that are not handled well by the TBB code
+foreach(var CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_DEBUG)
+  string(REPLACE "-Werror=non-virtual-dtor" "" ${var} "${${var}}")
+  string(REPLACE "-fvisibility=hidden" "" ${var} "${${var}}")
+  string(REPLACE "-fvisibility-inlines-hidden" "" ${var} "${${var}}")
+endforeach()
 
 if (WIN32)
   set(tbb_debug_postfix "_debug") # to fit pragmas in _windef.h inside TBB
@@ -239,6 +229,8 @@ endif()
 set_target_properties(tbb
   PROPERTIES OUTPUT_NAME tbb
   DEBUG_POSTFIX "${tbb_debug_postfix}"
+  COMPILE_PDB_NAME tbb
+  COMPILE_PDB_NAME_DEBUG "tbb${OPENCV_DEBUG_POSTFIX}"
   ARCHIVE_OUTPUT_DIRECTORY ${3P_LIBRARY_OUTPUT_PATH}
   RUNTIME_OUTPUT_DIRECTORY ${EXECUTABLE_OUTPUT_PATH}
   )
@@ -248,9 +240,9 @@ if(ENABLE_SOLUTION_FOLDERS)
 endif()
 
 ocv_install_target(tbb EXPORT OpenCVModules
-    RUNTIME DESTINATION ${OPENCV_BIN_INSTALL_PATH} COMPONENT main
-    LIBRARY DESTINATION ${OPENCV_LIB_INSTALL_PATH} COMPONENT main
-    ARCHIVE DESTINATION ${OPENCV_3P_LIB_INSTALL_PATH} COMPONENT main
+    RUNTIME DESTINATION ${OPENCV_BIN_INSTALL_PATH} COMPONENT libs
+    LIBRARY DESTINATION ${OPENCV_LIB_INSTALL_PATH} COMPONENT libs
+    ARCHIVE DESTINATION ${OPENCV_3P_LIB_INSTALL_PATH} COMPONENT dev
     )
 
 # get TBB version

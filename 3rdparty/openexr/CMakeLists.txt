@@ -22,11 +22,13 @@ set(OPENEXR_INCLUDE_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/Half"
                           "${CMAKE_CURRENT_SOURCE_DIR}/Imath"
                           "${CMAKE_CURRENT_SOURCE_DIR}/IlmImf")
 
-ocv_include_directories("${CMAKE_CURRENT_BINARY_DIR}" ${ZLIB_INCLUDE_DIR} ${OPENEXR_INCLUDE_PATHS})
+ocv_include_directories("${CMAKE_CURRENT_BINARY_DIR}" ${ZLIB_INCLUDE_DIRS} ${OPENEXR_INCLUDE_PATHS})
 
 file(GLOB lib_srcs Half/half.cpp Iex/*.cpp IlmThread/*.cpp Imath/*.cpp IlmImf/*.cpp)
 file(GLOB lib_hdrs Half/*.h Iex/Iex*.h IlmThread/IlmThread*.h Imath/Imath*.h IlmImf/*.h)
 list(APPEND lib_hdrs "${CMAKE_CURRENT_BINARY_DIR}/IlmBaseConfig.h" "${CMAKE_CURRENT_BINARY_DIR}/OpenEXRConfig.h")
+
+ocv_list_filterout(lib_srcs IlmImf/b44ExpLogTable.cpp)
 
 if(WIN32)
   ocv_list_filterout(lib_srcs Posix.*cpp)
@@ -54,6 +56,8 @@ set_target_properties(IlmImf
     PROPERTIES
     OUTPUT_NAME "IlmImf"
     DEBUG_POSTFIX "${OPENCV_DEBUG_POSTFIX}"
+    COMPILE_PDB_NAME "IlmImf"
+    COMPILE_PDB_NAME_DEBUG "IlmImf${OPENCV_DEBUG_POSTFIX}"
     ARCHIVE_OUTPUT_DIRECTORY ${3P_LIBRARY_OUTPUT_PATH}
     )
 
@@ -62,7 +66,7 @@ if(ENABLE_SOLUTION_FOLDERS)
 endif()
 
 if(NOT BUILD_SHARED_LIBS)
-  ocv_install_target(IlmImf EXPORT OpenCVModules ARCHIVE DESTINATION ${OPENCV_3P_LIB_INSTALL_PATH} COMPONENT main)
+  ocv_install_target(IlmImf EXPORT OpenCVModules ARCHIVE DESTINATION ${OPENCV_3P_LIB_INSTALL_PATH} COMPONENT dev)
 endif()
 
 set(OPENEXR_INCLUDE_PATHS ${OPENEXR_INCLUDE_PATHS} PARENT_SCOPE)
