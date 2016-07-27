@@ -306,7 +306,7 @@ endif()
 # Extra link libs if the user selects building static libs:
 if(NOT BUILD_SHARED_LIBS AND CMAKE_COMPILER_IS_GNUCXX AND NOT ANDROID)
   # Android does not need these settings because they are already set by toolchain file
-  set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} stdc++)
+  # set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} stdc++)
   set(OPENCV_EXTRA_FLAGS "-fPIC ${OPENCV_EXTRA_FLAGS}")
 endif()
 
