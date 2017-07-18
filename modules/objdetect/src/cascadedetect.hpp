@@ -125,9 +125,10 @@ protected:
                             int yStep, double factor, std::vector<Rect>& candidates,
                             std::vector<int>& rejectLevels, std::vector<double>& levelWeights,
                             Size sumSize0, bool outputRejectLevels = false );
+#ifdef HAVE_OPENCL
     bool ocl_detectMultiScaleNoGrouping( const std::vector<float>& scales,
                                          std::vector<Rect>& candidates );
-
+#endif
     void detectMultiScaleNoGrouping( InputArray image, std::vector<Rect>& candidates,
                                     std::vector<int>& rejectLevels, std::vector<double>& levelWeights,
                                     double scaleFactor, Size minObjectSize, Size maxObjectSize,
@@ -183,7 +184,7 @@ protected:
 
         struct Stump
         {
-            Stump() { }
+            Stump() : featureIdx(0), threshold(0), left(0), right(0) { }
             Stump(int _featureIdx, float _threshold, float _left, float _right)
             : featureIdx(_featureIdx), threshold(_threshold), left(_left), right(_right) {}
 
@@ -218,8 +219,10 @@ protected:
     Ptr<MaskGenerator> maskGenerator;
     UMat ugrayImage;
     UMat ufacepos, ustages, unodes, uleaves, usubsets;
+#ifdef HAVE_OPENCL
     ocl::Kernel haarKernel, lbpKernel;
     bool tryOpenCL;
+#endif
 
     Mutex mtx;
 };
@@ -486,6 +489,8 @@ template<class FEval>
 inline int predictOrdered( CascadeClassifierImpl& cascade,
                            Ptr<FeatureEvaluator> &_featureEvaluator, double& sum )
 {
+    CV_INSTRUMENT_REGION()
+
     int nstages = (int)cascade.data.stages.size();
     int nodeOfs = 0, leafOfs = 0;
     FEval& featureEvaluator = (FEval&)*_featureEvaluator;
@@ -526,6 +531,8 @@ template<class FEval>
 inline int predictCategorical( CascadeClassifierImpl& cascade,
                                Ptr<FeatureEvaluator> &_featureEvaluator, double& sum )
 {
+    CV_INSTRUMENT_REGION()
+
     int nstages = (int)cascade.data.stages.size();
     int nodeOfs = 0, leafOfs = 0;
     FEval& featureEvaluator = (FEval&)*_featureEvaluator;
@@ -568,6 +575,8 @@ template<class FEval>
 inline int predictOrderedStump( CascadeClassifierImpl& cascade,
                                 Ptr<FeatureEvaluator> &_featureEvaluator, double& sum )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_Assert(!cascade.data.stumps.empty());
     FEval& featureEvaluator = (FEval&)*_featureEvaluator;
     const CascadeClassifierImpl::Data::Stump* cascadeStumps = &cascade.data.stumps[0];
@@ -605,6 +614,8 @@ template<class FEval>
 inline int predictCategoricalStump( CascadeClassifierImpl& cascade,
                                     Ptr<FeatureEvaluator> &_featureEvaluator, double& sum )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_Assert(!cascade.data.stumps.empty());
     int nstages = (int)cascade.data.stages.size();
     FEval& featureEvaluator = (FEval&)*_featureEvaluator;

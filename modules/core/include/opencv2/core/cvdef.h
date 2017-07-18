@@ -42,12 +42,26 @@
 //
 //M*/
 
-#ifndef __OPENCV_CORE_CVDEF_H__
-#define __OPENCV_CORE_CVDEF_H__
+#ifndef OPENCV_CORE_CVDEF_H
+#define OPENCV_CORE_CVDEF_H
 
-#if !defined _CRT_SECURE_NO_DEPRECATE && defined _MSC_VER && _MSC_VER > 1300
-#  define _CRT_SECURE_NO_DEPRECATE /* to avoid multiple Visual Studio warnings */
+//! @addtogroup core_utils
+//! @{
+
+#ifdef __OPENCV_BUILD
+#include "cvconfig.h"
 #endif
+
+#ifndef __CV_EXPAND
+#define __CV_EXPAND(x) x
+#endif
+
+#ifndef __CV_CAT
+#define __CV_CAT__(x, y) x ## y
+#define __CV_CAT_(x, y) __CV_CAT__(x, y)
+#define __CV_CAT(x, y) __CV_CAT_(x, y)
+#endif
+
 
 // undef problematic defines sometimes defined by system headers (windows.h in particular)
 #undef small
@@ -56,7 +70,156 @@
 #undef abs
 #undef Complex
 
-#include "opencv2/hal/defs.h"
+#include <limits.h>
+#include "opencv2/core/hal/interface.h"
+
+#if defined __ICL
+#  define CV_ICC   __ICL
+#elif defined __ICC
+#  define CV_ICC   __ICC
+#elif defined __ECL
+#  define CV_ICC   __ECL
+#elif defined __ECC
+#  define CV_ICC   __ECC
+#elif defined __INTEL_COMPILER
+#  define CV_ICC   __INTEL_COMPILER
+#endif
+
+#ifndef CV_INLINE
+#  if defined __cplusplus
+#    define CV_INLINE static inline
+#  elif defined _MSC_VER
+#    define CV_INLINE __inline
+#  else
+#    define CV_INLINE static
+#  endif
+#endif
+
+#if defined CV_DISABLE_OPTIMIZATION || (defined CV_ICC && !defined CV_ENABLE_UNROLLED)
+#  define CV_ENABLE_UNROLLED 0
+#else
+#  define CV_ENABLE_UNROLLED 1
+#endif
+
+#ifdef __GNUC__
+#  define CV_DECL_ALIGNED(x) __attribute__ ((aligned (x)))
+#elif defined _MSC_VER
+#  define CV_DECL_ALIGNED(x) __declspec(align(x))
+#else
+#  define CV_DECL_ALIGNED(x)
+#endif
+
+/* CPU features and intrinsics support */
+#define CV_CPU_NONE             0
+#define CV_CPU_MMX              1
+#define CV_CPU_SSE              2
+#define CV_CPU_SSE2             3
+#define CV_CPU_SSE3             4
+#define CV_CPU_SSSE3            5
+#define CV_CPU_SSE4_1           6
+#define CV_CPU_SSE4_2           7
+#define CV_CPU_POPCNT           8
+#define CV_CPU_FP16             9
+#define CV_CPU_AVX              10
+#define CV_CPU_AVX2             11
+#define CV_CPU_FMA3             12
+
+#define CV_CPU_AVX_512F         13
+#define CV_CPU_AVX_512BW        14
+#define CV_CPU_AVX_512CD        15
+#define CV_CPU_AVX_512DQ        16
+#define CV_CPU_AVX_512ER        17
+#define CV_CPU_AVX_512IFMA512   18
+#define CV_CPU_AVX_512PF        19
+#define CV_CPU_AVX_512VBMI      20
+#define CV_CPU_AVX_512VL        21
+
+#define CV_CPU_NEON   100
+
+// when adding to this list remember to update the following enum
+#define CV_HARDWARE_MAX_FEATURE 255
+
+/** @brief Available CPU features.
+*/
+enum CpuFeatures {
+    CPU_MMX             = 1,
+    CPU_SSE             = 2,
+    CPU_SSE2            = 3,
+    CPU_SSE3            = 4,
+    CPU_SSSE3           = 5,
+    CPU_SSE4_1          = 6,
+    CPU_SSE4_2          = 7,
+    CPU_POPCNT          = 8,
+    CPU_FP16            = 9,
+    CPU_AVX             = 10,
+    CPU_AVX2            = 11,
+    CPU_FMA3            = 12,
+
+    CPU_AVX_512F        = 13,
+    CPU_AVX_512BW       = 14,
+    CPU_AVX_512CD       = 15,
+    CPU_AVX_512DQ       = 16,
+    CPU_AVX_512ER       = 17,
+    CPU_AVX_512IFMA512  = 18,
+    CPU_AVX_512PF       = 19,
+    CPU_AVX_512VBMI     = 20,
+    CPU_AVX_512VL       = 21,
+
+    CPU_NEON            = 100
+};
+
+
+#include "cv_cpu_dispatch.h"
+
+
+/* fundamental constants */
+#define CV_PI   3.1415926535897932384626433832795
+#define CV_2PI  6.283185307179586476925286766559
+#define CV_LOG2 0.69314718055994530941723212145818
+
+#if defined __ARM_FP16_FORMAT_IEEE \
+    && !defined __CUDACC__
+#  define CV_FP16_TYPE 1
+#else
+#  define CV_FP16_TYPE 0
+#endif
+
+typedef union Cv16suf
+{
+    short i;
+#if CV_FP16_TYPE
+    __fp16 h;
+#endif
+    struct _fp16Format
+    {
+        unsigned int significand : 10;
+        unsigned int exponent    : 5;
+        unsigned int sign        : 1;
+    } fmt;
+}
+Cv16suf;
+
+typedef union Cv32suf
+{
+    int i;
+    unsigned u;
+    float f;
+    struct _fp32Format
+    {
+        unsigned int significand : 23;
+        unsigned int exponent    : 8;
+        unsigned int sign        : 1;
+    } fmt;
+}
+Cv32suf;
+
+typedef union Cv64suf
+{
+    int64 i;
+    uint64 u;
+    double f;
+}
+Cv64suf;
 
 #define OPENCV_ABI_COMPATIBILITY 300
 
@@ -70,6 +233,16 @@
 #  define CV_EXPORTS __attribute__ ((visibility ("default")))
 #else
 #  define CV_EXPORTS
+#endif
+
+#ifndef CV_DEPRECATED
+#  if defined(__GNUC__)
+#    define CV_DEPRECATED __attribute__ ((deprecated))
+#  elif defined(_MSC_VER)
+#    define CV_DEPRECATED __declspec(deprecated)
+#  else
+#    define CV_DEPRECATED
+#  endif
 #endif
 
 #ifndef CV_EXTERN_C
@@ -96,67 +269,6 @@
 *                                  Matrix type (Mat)                                     *
 \****************************************************************************************/
 
-#define CV_CN_MAX     512
-#define CV_CN_SHIFT   3
-#define CV_DEPTH_MAX  (1 << CV_CN_SHIFT)
-
-#define CV_8U   0
-#define CV_8S   1
-#define CV_16U  2
-#define CV_16S  3
-#define CV_32S  4
-#define CV_32F  5
-#define CV_64F  6
-#define CV_USRTYPE1 7
-
-#define CV_MAT_DEPTH_MASK       (CV_DEPTH_MAX - 1)
-#define CV_MAT_DEPTH(flags)     ((flags) & CV_MAT_DEPTH_MASK)
-
-#define CV_MAKETYPE(depth,cn) (CV_MAT_DEPTH(depth) + (((cn)-1) << CV_CN_SHIFT))
-#define CV_MAKE_TYPE CV_MAKETYPE
-
-#define CV_8UC1 CV_MAKETYPE(CV_8U,1)
-#define CV_8UC2 CV_MAKETYPE(CV_8U,2)
-#define CV_8UC3 CV_MAKETYPE(CV_8U,3)
-#define CV_8UC4 CV_MAKETYPE(CV_8U,4)
-#define CV_8UC(n) CV_MAKETYPE(CV_8U,(n))
-
-#define CV_8SC1 CV_MAKETYPE(CV_8S,1)
-#define CV_8SC2 CV_MAKETYPE(CV_8S,2)
-#define CV_8SC3 CV_MAKETYPE(CV_8S,3)
-#define CV_8SC4 CV_MAKETYPE(CV_8S,4)
-#define CV_8SC(n) CV_MAKETYPE(CV_8S,(n))
-
-#define CV_16UC1 CV_MAKETYPE(CV_16U,1)
-#define CV_16UC2 CV_MAKETYPE(CV_16U,2)
-#define CV_16UC3 CV_MAKETYPE(CV_16U,3)
-#define CV_16UC4 CV_MAKETYPE(CV_16U,4)
-#define CV_16UC(n) CV_MAKETYPE(CV_16U,(n))
-
-#define CV_16SC1 CV_MAKETYPE(CV_16S,1)
-#define CV_16SC2 CV_MAKETYPE(CV_16S,2)
-#define CV_16SC3 CV_MAKETYPE(CV_16S,3)
-#define CV_16SC4 CV_MAKETYPE(CV_16S,4)
-#define CV_16SC(n) CV_MAKETYPE(CV_16S,(n))
-
-#define CV_32SC1 CV_MAKETYPE(CV_32S,1)
-#define CV_32SC2 CV_MAKETYPE(CV_32S,2)
-#define CV_32SC3 CV_MAKETYPE(CV_32S,3)
-#define CV_32SC4 CV_MAKETYPE(CV_32S,4)
-#define CV_32SC(n) CV_MAKETYPE(CV_32S,(n))
-
-#define CV_32FC1 CV_MAKETYPE(CV_32F,1)
-#define CV_32FC2 CV_MAKETYPE(CV_32F,2)
-#define CV_32FC3 CV_MAKETYPE(CV_32F,3)
-#define CV_32FC4 CV_MAKETYPE(CV_32F,4)
-#define CV_32FC(n) CV_MAKETYPE(CV_32F,(n))
-
-#define CV_64FC1 CV_MAKETYPE(CV_64F,1)
-#define CV_64FC2 CV_MAKETYPE(CV_64F,2)
-#define CV_64FC3 CV_MAKETYPE(CV_64F,3)
-#define CV_64FC4 CV_MAKETYPE(CV_64F,4)
-#define CV_64FC(n) CV_MAKETYPE(CV_64F,(n))
-
 #define CV_MAT_CN_MASK          ((CV_CN_MAX - 1) << CV_CN_SHIFT)
 #define CV_MAT_CN(flags)        ((((flags) & CV_MAT_CN_MASK) >> CV_CN_SHIFT) + 1)
 #define CV_MAT_TYPE_MASK        (CV_DEPTH_MAX*CV_CN_MAX - 1)
@@ -169,12 +281,12 @@
 #define CV_SUBMAT_FLAG          (1 << CV_SUBMAT_FLAG_SHIFT)
 #define CV_IS_SUBMAT(flags)     ((flags) & CV_MAT_SUBMAT_FLAG)
 
-/* Size of each channel item,
-   0x124489 = 1000 0100 0100 0010 0010 0001 0001 ~ array of sizeof(arr_type_elem) */
+/** Size of each channel item,
+   0x8442211 = 1000 0100 0100 0010 0010 0001 0001 ~ array of sizeof(arr_type_elem) */
 #define CV_ELEM_SIZE1(type) \
     ((((sizeof(size_t)<<28)|0x8442211) >> CV_MAT_DEPTH(type)*4) & 15)
 
-/* 0x3a50 = 11 10 10 01 01 00 00 ~ array of log2(sizeof(arr_type_elem)) */
+/** 0x3a50 = 11 10 10 01 01 00 00 ~ array of log2(sizeof(arr_type_elem)) */
 #define CV_ELEM_SIZE(type) \
     (CV_MAT_CN(type) << ((((sizeof(size_t)/4+1)*16384|0x3a50) >> CV_MAT_DEPTH(type)*2) & 3))
 
@@ -187,13 +299,24 @@
 #endif
 
 /****************************************************************************************\
+*                                    static analysys                                     *
+\****************************************************************************************/
+
+// In practice, some macro are not processed correctly (noreturn is not detected).
+// We need to use simplified definition for them.
+#ifndef CV_STATIC_ANALYSIS
+# if defined(__KLOCWORK__) || defined(__clang_analyzer__) || defined(__COVERITY__)
+#   define CV_STATIC_ANALYSIS
+# endif
+#endif
+
+/****************************************************************************************\
 *          exchange-add operation for atomic operations on reference counters            *
 \****************************************************************************************/
 
-#if defined __INTEL_COMPILER && !(defined WIN32 || defined _WIN32)
-   // atomic increment on the linux version of the Intel(tm) compiler
-#  define CV_XADD(addr, delta) (int)_InterlockedExchangeAdd(const_cast<void*>(reinterpret_cast<volatile void*>(addr)), delta)
-#elif defined __GNUC__
+#ifdef CV_XADD
+  // allow to use user-defined macro
+#elif defined __GNUC__ || defined __clang__
 #  if defined __clang__ && __clang_major__ >= 3 && !defined __ANDROID__ && !defined __EMSCRIPTEN__ && !defined(__CUDACC__)
 #    ifdef __ATOMIC_ACQ_REL
 #      define CV_XADD(addr, delta) __c11_atomic_fetch_add((_Atomic(int)*)(addr), delta, __ATOMIC_ACQ_REL)
@@ -232,11 +355,25 @@
 
 
 /****************************************************************************************\
+*                                    C++ 11                                              *
+\****************************************************************************************/
+#ifndef CV_CXX11
+#  if __cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1600)
+#    define CV_CXX11 1
+#  endif
+#else
+#  if CV_CXX11 == 0
+#    undef CV_CXX11
+#  endif
+#endif
+
+
+/****************************************************************************************\
 *                                    C++ Move semantics                                  *
 \****************************************************************************************/
 
 #ifndef CV_CXX_MOVE_SEMANTICS
-#  if __cplusplus >= 201103L || defined(__GXX_EXPERIMENTAL_CXX0X__) || defined(_MSC_VER) && _MSC_VER >= 1600
+#  if __cplusplus >= 201103L || defined(__GXX_EXPERIMENTAL_CXX0X__) || (defined(_MSC_VER) && _MSC_VER >= 1600)
 #    define CV_CXX_MOVE_SEMANTICS 1
 #  elif defined(__clang)
 #    if __has_feature(cxx_rvalue_references)
@@ -249,4 +386,21 @@
 #  endif
 #endif
 
-#endif // __OPENCV_CORE_CVDEF_H__
+/****************************************************************************************\
+*                                    C++11 std::array                                    *
+\****************************************************************************************/
+
+#ifndef CV_CXX_STD_ARRAY
+#  if __cplusplus >= 201103L
+#    define CV_CXX_STD_ARRAY 1
+#    include <array>
+#  endif
+#else
+#  if CV_CXX_STD_ARRAY == 0
+#    undef CV_CXX_STD_ARRAY
+#  endif
+#endif
+
+//! @}
+
+#endif // OPENCV_CORE_CVDEF_H

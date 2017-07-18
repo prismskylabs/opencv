@@ -362,6 +362,12 @@ static void sortSamplesByClasses( const Mat& _samples, const Mat& _responses,
 
 //////////////////////// SVM implementation //////////////////////////////
 
+Ptr<ParamGrid> SVM::getDefaultGridPtr( int param_id)
+{
+  ParamGrid grid = getDefaultGrid(param_id); // this is not a nice solution..
+  return makePtr<ParamGrid>(grid.minVal, grid.maxVal, grid.logStep);
+}
+
 ParamGrid SVM::getDefaultGrid( int param_id )
 {
     ParamGrid grid;
@@ -1241,6 +1247,12 @@ public:
         df_alpha.clear();
         df_index.clear();
         sv.release();
+        uncompressed_sv.release();
+    }
+
+    Mat getUncompressedSupportVectors_() const
+    {
+        return uncompressed_sv;
     }
 
     Mat getSupportVectors() const
@@ -1436,7 +1448,7 @@ public:
             //check that while cross-validation there were the samples from all the classes
             if( class_ranges[class_count] <= 0 )
                 CV_Error( CV_StsBadArg, "While cross-validation one or more of the classes have "
-                "been fell out of the sample. Try to enlarge <Params::k_fold>" );
+                "been fell out of the sample. Try to reduce <Params::k_fold>" );
 
             if( svmType == NU_SVC )
             {
@@ -1538,6 +1550,7 @@ public:
         }
 
         optimize_linear_svm();
+
         return true;
     }
 
@@ -1588,6 +1601,7 @@ public:
 
         setRangeVector(df_index, df_count);
         df_alpha.assign(df_count, 1.);
+        sv.copyTo(uncompressed_sv);
         std::swap(sv, new_sv);
         std::swap(decision_func, new_df);
     }
@@ -1795,10 +1809,10 @@ public:
                 if( !do_train( temp_train_samples, temp_train_responses ))
                     continue;
 
-                for( i = 0; i < train_sample_count; i++ )
+                for( i = 0; i < test_sample_count; i++ )
                 {
                     j = sidx[(i+start+train_sample_count) % sample_count];
-                    memcpy(temp_train_samples.ptr(i), samples.ptr(j), sample_size);
+                    memcpy(temp_test_samples.ptr(i), samples.ptr(j), sample_size);
                 }
 
                 predict(temp_test_samples, temp_test_responses, 0);
@@ -1822,8 +1836,8 @@ public:
             }
         }
 
-        params = best_params;
         class_labels = class_labels0;
+        setParams(best_params);
         return do_train( samples, responses );
     }
 
@@ -1911,6 +1925,24 @@ public:
         Mat* results;
         bool returnDFVal;
     };
+
+    bool trainAuto_(InputArray samples, int layout,
+            InputArray responses, int kfold, Ptr<ParamGrid> Cgrid,
+            Ptr<ParamGrid> gammaGrid, Ptr<ParamGrid> pGrid, Ptr<ParamGrid> nuGrid,
+            Ptr<ParamGrid> coeffGrid, Ptr<ParamGrid> degreeGrid, bool balanced)
+    {
+        Ptr<TrainData> data = TrainData::create(samples, layout, responses);
+        return this->trainAuto(
+                data, kfold,
+                *Cgrid.get(),
+                *gammaGrid.get(),
+                *pGrid.get(),
+                *nuGrid.get(),
+                *coeffGrid.get(),
+                *degreeGrid.get(),
+                balanced);
+    }
+
 
     float predict( InputArray _samples, OutputArray _results, int flags ) const
     {
@@ -2029,6 +2061,7 @@ public:
         if( !isTrained() )
             CV_Error( CV_StsParseError, "SVM model data is invalid, check sv_count, var_* and class_count tags" );
 
+        writeFormat(fs);
         write_params( fs );
 
         fs << "var_count" << var_count;
@@ -2056,6 +2089,21 @@ public:
         }
         fs << "]";
 
+        if ( !uncompressed_sv.empty() )
+        {
+            // write the joint collection of uncompressed support vectors
+            int uncompressed_sv_total = uncompressed_sv.rows;
+            fs << "uncompressed_sv_total" << uncompressed_sv_total;
+            fs << "uncompressed_support_vectors" << "[";
+            for( i = 0; i < uncompressed_sv_total; i++ )
+            {
+                fs << "[:";
+                fs.writeRaw("f", uncompressed_sv.ptr(i), uncompressed_sv.cols*uncompressed_sv.elemSize());
+                fs << "]";
+            }
+            fs << "]";
+        }
+
         // write decision functions
         int df_count = (int)decision_func.size();
 
@@ -2069,7 +2117,7 @@ public:
                << "alpha" << "[:";
             fs.writeRaw("d", (const uchar*)&df_alpha[df.ofs], sv_count*sizeof(df_alpha[0]));
             fs << "]";
-            if( class_count > 2 )
+            if( class_count >= 2 )
             {
                 fs << "index" << "[:";
                 fs.writeRaw("i", (const uchar*)&df_index[df.ofs], sv_count*sizeof(df_index[0]));
@@ -2096,7 +2144,7 @@ public:
             svm_type_str == "NU_SVR" ? NU_SVR : -1;
 
         if( svmType < 0 )
-            CV_Error( CV_StsParseError, "Missing of invalid SVM type" );
+            CV_Error( CV_StsParseError, "Missing or invalid SVM type" );
 
         FileNode kernel_node = fn["kernel"];
         if( kernel_node.empty() )
@@ -2168,12 +2216,29 @@ public:
         FileNode sv_node = fn["support_vectors"];
 
         CV_Assert((int)sv_node.size() == sv_total);
-        sv.create(sv_total, var_count, CV_32F);
 
+        sv.create(sv_total, var_count, CV_32F);
         FileNodeIterator sv_it = sv_node.begin();
         for( i = 0; i < sv_total; i++, ++sv_it )
         {
             (*sv_it).readRaw("f", sv.ptr(i), var_count*sv.elemSize());
+        }
+
+        int uncompressed_sv_total = (int)fn["uncompressed_sv_total"];
+
+        if( uncompressed_sv_total > 0 )
+        {
+            // read uncompressed support vectors
+            FileNode uncompressed_sv_node = fn["uncompressed_support_vectors"];
+
+            CV_Assert((int)uncompressed_sv_node.size() == uncompressed_sv_total);
+            uncompressed_sv.create(uncompressed_sv_total, var_count, CV_32F);
+
+            FileNodeIterator uncompressed_sv_it = uncompressed_sv_node.begin();
+            for( i = 0; i < uncompressed_sv_total; i++, ++uncompressed_sv_it )
+            {
+                (*uncompressed_sv_it).readRaw("f", uncompressed_sv.ptr(i), var_count*uncompressed_sv.elemSize());
+            }
         }
 
         // read decision functions
@@ -2194,11 +2259,11 @@ public:
             df_index.resize(ofs + sv_count);
             df_alpha.resize(ofs + sv_count);
             dfi["alpha"].readRaw("d", (uchar*)&df_alpha[ofs], sv_count*sizeof(df_alpha[0]));
-            if( class_count > 2 )
+            if( class_count >= 2 )
                 dfi["index"].readRaw("i", (uchar*)&df_index[ofs], sv_count*sizeof(df_index[0]));
             decision_func.push_back(df);
         }
-        if( class_count <= 2 )
+        if( class_count < 2 )
             setRangeVector(df_index, sv_total);
         if( (int)fn["optimize_linear"] != 0 )
             optimize_linear_svm();
@@ -2207,7 +2272,7 @@ public:
     SvmParams params;
     Mat class_labels;
     int var_count;
-    Mat sv;
+    Mat sv, uncompressed_sv;
     vector<DecisionFunc> decision_func;
     vector<double> df_alpha;
     vector<int> df_index;
@@ -2219,6 +2284,38 @@ public:
 Ptr<SVM> SVM::create()
 {
     return makePtr<SVMImpl>();
+}
+
+Ptr<SVM> SVM::load(const String& filepath)
+{
+    FileStorage fs;
+    fs.open(filepath, FileStorage::READ);
+
+    Ptr<SVM> svm = makePtr<SVMImpl>();
+
+    ((SVMImpl*)svm.get())->read(fs.getFirstTopLevelNode());
+    return svm;
+}
+
+Mat SVM::getUncompressedSupportVectors() const
+{
+    const SVMImpl* this_ = dynamic_cast<const SVMImpl*>(this);
+    if(!this_)
+        CV_Error(Error::StsNotImplemented, "the class is not SVMImpl");
+    return this_->getUncompressedSupportVectors_();
+}
+
+bool SVM::trainAuto(InputArray samples, int layout,
+            InputArray responses, int kfold, Ptr<ParamGrid> Cgrid,
+            Ptr<ParamGrid> gammaGrid, Ptr<ParamGrid> pGrid, Ptr<ParamGrid> nuGrid,
+            Ptr<ParamGrid> coeffGrid, Ptr<ParamGrid> degreeGrid, bool balanced)
+{
+  SVMImpl* this_ = dynamic_cast<SVMImpl*>(this);
+  if (!this_) {
+    CV_Error(Error::StsNotImplemented, "the class is not SVMImpl");
+  }
+  return this_->trainAuto_(samples, layout, responses,
+    kfold, Cgrid, gammaGrid, pGrid, nuGrid, coeffGrid, degreeGrid, balanced);
 }
 
 }

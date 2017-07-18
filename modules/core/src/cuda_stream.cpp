@@ -280,32 +280,44 @@ class cv::cuda::Stream::Impl
 {
 public:
     cudaStream_t stream;
-    Ptr<StackAllocator> stackAllocator_;
+    bool ownStream;
+
+    Ptr<GpuMat::Allocator> allocator;
 
     Impl();
-    Impl(cudaStream_t stream);
+    Impl(const Ptr<GpuMat::Allocator>& allocator);
+    explicit Impl(cudaStream_t stream);
 
     ~Impl();
 };
 
-cv::cuda::Stream::Impl::Impl() : stream(0)
+cv::cuda::Stream::Impl::Impl() : stream(0), ownStream(false)
 {
     cudaSafeCall( cudaStreamCreate(&stream) );
+    ownStream = true;
 
-    stackAllocator_ = makePtr<StackAllocator>(stream);
+    allocator = makePtr<StackAllocator>(stream);
 }
 
-cv::cuda::Stream::Impl::Impl(cudaStream_t stream_) : stream(stream_)
+cv::cuda::Stream::Impl::Impl(const Ptr<GpuMat::Allocator>& allocator) : stream(0), ownStream(false), allocator(allocator)
 {
-    stackAllocator_ = makePtr<StackAllocator>(stream);
+    cudaSafeCall( cudaStreamCreate(&stream) );
+    ownStream = true;
+}
+
+cv::cuda::Stream::Impl::Impl(cudaStream_t stream_) : stream(stream_), ownStream(false)
+{
+    allocator = makePtr<StackAllocator>(stream);
 }
 
 cv::cuda::Stream::Impl::~Impl()
 {
-    stackAllocator_.release();
+    allocator.release();
 
-    if (stream)
+    if (stream && ownStream)
+    {
         cudaStreamDestroy(stream);
+    }
 }
 
 #endif
@@ -412,6 +424,16 @@ cv::cuda::Stream::Stream()
 #endif
 }
 
+cv::cuda::Stream::Stream(const Ptr<GpuMat::Allocator>& allocator)
+{
+#ifndef HAVE_CUDA
+    (void) allocator;
+    throw_no_cuda();
+#else
+    impl_ = makePtr<Impl>(allocator);
+#endif
+}
+
 bool cv::cuda::Stream::queryIfComplete() const
 {
 #ifndef HAVE_CUDA
@@ -514,6 +536,11 @@ cv::cuda::Stream::operator bool_type() const
 cudaStream_t cv::cuda::StreamAccessor::getStream(const Stream& stream)
 {
     return stream.impl_->stream;
+}
+
+Stream cv::cuda::StreamAccessor::wrapStream(cudaStream_t stream)
+{
+    return Stream(makePtr<Stream::Impl>(stream));
 }
 
 #endif
@@ -658,20 +685,33 @@ void cv::cuda::setBufferPoolConfig(int deviceId, size_t stackSize, int stackCoun
 #endif
 }
 
-#ifdef HAVE_CUDA
-
-cv::cuda::BufferPool::BufferPool(Stream& stream) : allocator_(stream.impl_->stackAllocator_.get())
+#ifndef HAVE_CUDA
+cv::cuda::BufferPool::BufferPool(Stream& stream)
+{
+    (void) stream;
+    throw_no_cuda();
+}
+#else
+cv::cuda::BufferPool::BufferPool(Stream& stream) : allocator_(stream.impl_->allocator)
 {
 }
+#endif
 
 GpuMat cv::cuda::BufferPool::getBuffer(int rows, int cols, int type)
 {
+#ifndef HAVE_CUDA
+    (void) rows;
+    (void) cols;
+    (void) type;
+    throw_no_cuda();
+    return GpuMat();
+#else
     GpuMat buf(allocator_);
     buf.create(rows, cols, type);
     return buf;
+#endif
 }
 
-#endif
 
 ////////////////////////////////////////////////////////////////
 // Event
@@ -693,25 +733,39 @@ class cv::cuda::Event::Impl
 {
 public:
     cudaEvent_t event;
+    bool ownEvent;
 
-    Impl(unsigned int flags);
+    explicit Impl(unsigned int flags);
+    explicit Impl(cudaEvent_t event);
     ~Impl();
 };
 
-cv::cuda::Event::Impl::Impl(unsigned int flags) : event(0)
+cv::cuda::Event::Impl::Impl(unsigned int flags) : event(0), ownEvent(false)
 {
     cudaSafeCall( cudaEventCreateWithFlags(&event, flags) );
+    ownEvent = true;
+}
+
+cv::cuda::Event::Impl::Impl(cudaEvent_t e) : event(e), ownEvent(false)
+{
 }
 
 cv::cuda::Event::Impl::~Impl()
 {
-    if (event)
+    if (event && ownEvent)
+    {
         cudaEventDestroy(event);
+    }
 }
 
 cudaEvent_t cv::cuda::EventAccessor::getEvent(const Event& event)
 {
     return event.impl_->event;
+}
+
+Event cv::cuda::EventAccessor::wrapEvent(cudaEvent_t event)
+{
+    return Event(makePtr<Event::Impl>(event));
 }
 
 #endif

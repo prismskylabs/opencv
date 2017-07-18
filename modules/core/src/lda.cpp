@@ -53,7 +53,8 @@ static Mat argsort(InputArray _src, bool ascending=true)
 
 static Mat asRowMatrix(InputArrayOfArrays src, int rtype, double alpha=1, double beta=0) {
     // make sure the input data is a vector of matrices or vector of vector
-    if(src.kind() != _InputArray::STD_VECTOR_MAT && src.kind() != _InputArray::STD_VECTOR_VECTOR) {
+    if(src.kind() != _InputArray::STD_VECTOR_MAT && src.kind() != _InputArray::STD_ARRAY_MAT &&
+        src.kind() != _InputArray::STD_VECTOR_VECTOR) {
         String error_message = "The data is expected as InputArray::STD_VECTOR_MAT (a std::vector<Mat>) or _InputArray::STD_VECTOR_VECTOR (a std::vector< std::vector<...> >).";
         CV_Error(Error::StsBadArg, error_message);
     }
@@ -882,7 +883,7 @@ private:
 
 public:
     EigenvalueDecomposition()
-    : n(0) { }
+        : n(0), cdivr(0), cdivi(0), d(0), e(0), ort(0), V(0), H(0) {}
 
     // Initializes & computes the Eigenvalue Decomposition for a general matrix
     // given in src. This function is a port of the EigenvalueSolver in JAMA,
@@ -898,6 +899,8 @@ public:
     // National Institute of Standards and Technology (NIST).
     void compute(InputArray src)
     {
+        CV_INSTRUMENT_REGION()
+
         if(isSymmetric(src)) {
             // Fall back to OpenCV for a symmetric matrix!
             cv::eigen(src, _eigenvalues, _eigenvectors);
@@ -937,9 +940,9 @@ public:
 // Linear Discriminant Analysis implementation
 //------------------------------------------------------------------------------
 
-LDA::LDA(int num_components) : _num_components(num_components) { }
+LDA::LDA(int num_components) : _dataAsRow(true), _num_components(num_components) { }
 
-LDA::LDA(InputArrayOfArrays src, InputArray labels, int num_components) : _num_components(num_components)
+LDA::LDA(InputArrayOfArrays src, InputArray labels, int num_components) : _dataAsRow(true),  _num_components(num_components)
 {
     this->compute(src, labels); //! compute eigenvectors and eigenvalues
 }
@@ -960,7 +963,7 @@ void LDA::save(const String& filename) const
 void LDA::load(const String& filename) {
     FileStorage fs(filename, FileStorage::READ);
     if (!fs.isOpened())
-       CV_Error(Error::StsError, "File can't be opened for writing!");
+       CV_Error(Error::StsError, "File can't be opened for reading!");
     this->load(fs);
     fs.release();
 }
@@ -1094,6 +1097,7 @@ void LDA::lda(InputArrayOfArrays _src, InputArray _lbls) {
 void LDA::compute(InputArrayOfArrays _src, InputArray _lbls) {
     switch(_src.kind()) {
     case _InputArray::STD_VECTOR_MAT:
+    case _InputArray::STD_ARRAY_MAT:
         lda(asRowMatrix(_src, CV_64FC1), _lbls);
         break;
     case _InputArray::MAT:
@@ -1106,14 +1110,14 @@ void LDA::compute(InputArrayOfArrays _src, InputArray _lbls) {
     }
 }
 
-// Projects samples into the LDA subspace.
+// Projects one or more row aligned samples into the LDA subspace.
 Mat LDA::project(InputArray src) {
-   return subspaceProject(_eigenvectors, Mat(), _dataAsRow ? src : src.getMat().t());
+   return subspaceProject(_eigenvectors, Mat(), src);
 }
 
-// Reconstructs projections from the LDA subspace.
+// Reconstructs projections from the LDA subspace from one or more row aligned samples.
 Mat LDA::reconstruct(InputArray src) {
-   return subspaceReconstruct(_eigenvectors, Mat(), _dataAsRow ? src : src.getMat().t());
+   return subspaceReconstruct(_eigenvectors, Mat(), src);
 }
 
 }

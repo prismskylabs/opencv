@@ -24,6 +24,8 @@
 // NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+#include "precomp.hpp"
+
 #include "opencv2\highgui\highgui_winrt.hpp"
 #include "window_winrt_bridge.hpp"
 
@@ -171,10 +173,21 @@ void CvTrackbar::setPosition(double pos)
 
 void CvTrackbar::setMaxPosition(double pos)
 {
-    if (pos < 0)
-        pos = 0;
+    //slider->Minimum is initialized with 0
+    if (pos < slider->Minimum)
+        pos = slider->Minimum;
 
     slider->Maximum = pos;
+}
+
+void CvTrackbar::setMinPosition(double pos)
+{
+    if (pos < 0)
+        pos = 0;
+    //Min is always less than Max.
+    if (pos > slider->Maximum)
+        pos = slider->Maximum;
+    slider->Minimum = pos;
 }
 
 void CvTrackbar::setSlider(Slider^ slider) {
@@ -190,6 +203,11 @@ double CvTrackbar::getPosition()
 double CvTrackbar::getMaxPosition()
 {
     return slider->Maximum;
+}
+
+double CvTrackbar::getMinPosition()
+{
+    return slider->Minimum;
 }
 
 Slider^ CvTrackbar::getSlider()

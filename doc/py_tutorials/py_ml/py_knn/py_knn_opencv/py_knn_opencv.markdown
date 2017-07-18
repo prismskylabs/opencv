@@ -13,7 +13,7 @@ OCR of Hand-written Digits
 
 Our goal is to build an application which can read the handwritten digits. For this we need some
 train_data and test_data. OpenCV comes with an image digits.png (in the folder
-opencv/samples/python2/data/) which has 5000 handwritten digits (500 for each digit). Each digit is
+opencv/samples/data/) which has 5000 handwritten digits (500 for each digit). Each digit is
 a 20x20 image. So our first step is to split this image into 5000 different digits. For each digit,
 we flatten it into a single row with 400 pixels. That is our feature set, ie intensity values of all
 pixels. It is the simplest feature set we can create. We use first 250 samples of each digit as
@@ -42,16 +42,16 @@ train_labels = np.repeat(k,250)[:,np.newaxis]
 test_labels = train_labels.copy()
 
 # Initiate kNN, train the data, then test it with test data for k=1
-knn = cv2.KNearest()
-knn.train(train,train_labels)
-ret,result,neighbours,dist = knn.find_nearest(test,k=5)
+knn = cv2.ml.KNearest_create()
+knn.train(train, cv2.ml.ROW_SAMPLE, train_labels)
+ret,result,neighbours,dist = knn.findNearest(test,k=5)
 
 # Now we check the accuracy of classification
 # For that, compare the result with test_labels and check which are wrong
 matches = result==test_labels
 correct = np.count_nonzero(matches)
 accuracy = correct*100.0/result.size
-print accuracy
+print( accuracy )
 @endcode
 So our basic OCR app is ready. This particular example gave me an accuracy of 91%. One option
 improve accuracy is to add more data for training, especially the wrong ones. So instead of finding
@@ -64,7 +64,7 @@ np.savez('knn_data.npz',train=train, train_labels=train_labels)
 
 # Now load the data
 with np.load('knn_data.npz') as data:
-    print data.files
+    print( data.files )
     train = data['train']
     train_labels = data['train_labels']
 @endcode
@@ -103,13 +103,13 @@ responses, trainData = np.hsplit(train,[1])
 labels, testData = np.hsplit(test,[1])
 
 # Initiate the kNN, classify, measure accuracy.
-knn = cv2.KNearest()
-knn.train(trainData, responses)
-ret, result, neighbours, dist = knn.find_nearest(testData, k=5)
+knn = cv2.ml.KNearest_create()
+knn.train(trainData, cv2.ml.ROW_SAMPLE, responses)
+ret, result, neighbours, dist = knn.findNearest(testData, k=5)
 
 correct = np.count_nonzero(result == labels)
 accuracy = correct*100.0/10000
-print accuracy
+print( accuracy )
 @endcode
 It gives me an accuracy of 93.22%. Again, if you want to increase accuracy, you can iteratively add
 error data in each level.

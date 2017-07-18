@@ -341,7 +341,7 @@ int my_jpeg_load_dht (struct jpeg_decompress_struct *info, unsigned char *dht,
 
     JHUFF_TBL **hufftbl;
     unsigned char bits[17];
-    unsigned char huffval[256];
+    unsigned char huffval[256] = {0};
 
     while (length > 16)
     {
@@ -364,7 +364,7 @@ int my_jpeg_load_dht (struct jpeg_decompress_struct *info, unsigned char *dht,
 
        if (index & 0x10)
        {
-           index -= 0x10;
+           index &= ~0x10;
            hufftbl = &ac_tables[index];
        }
        else
@@ -472,6 +472,7 @@ bool  JpegDecoder::readData( Mat& img )
                         icvCvt_CMYK2Gray_8u_C4C1R( buffer[0], 0, data, 0, cvSize(m_width,1) );
                 }
             }
+
             result = true;
             jpeg_finish_decompress( cinfo );
         }

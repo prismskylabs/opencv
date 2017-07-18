@@ -42,18 +42,20 @@
 //
 //M*/
 
-#ifndef __OPENCV_CORE_BASE_HPP__
-#define __OPENCV_CORE_BASE_HPP__
+#ifndef OPENCV_CORE_BASE_HPP
+#define OPENCV_CORE_BASE_HPP
 
 #ifndef __cplusplus
 #  error base.hpp header must be compiled as C++
 #endif
 
+#include "opencv2/opencv_modules.hpp"
+
 #include <climits>
+#include <algorithm>
 
 #include "opencv2/core/cvdef.h"
 #include "opencv2/core/cvstd.hpp"
-#include "opencv2/hal.hpp"
 
 namespace cv
 {
@@ -64,38 +66,38 @@ namespace cv
 namespace Error {
 //! error codes
 enum Code {
-    StsOk=                       0,  //!< everithing is ok
+    StsOk=                       0,  //!< everything is ok
     StsBackTrace=               -1,  //!< pseudo error for back trace
     StsError=                   -2,  //!< unknown /unspecified error
     StsInternal=                -3,  //!< internal error (bad state)
     StsNoMem=                   -4,  //!< insufficient memory
     StsBadArg=                  -5,  //!< function arg/param is bad
     StsBadFunc=                 -6,  //!< unsupported function
-    StsNoConv=                  -7,  //!< iter. didn't converge
+    StsNoConv=                  -7,  //!< iteration didn't converge
     StsAutoTrace=               -8,  //!< tracing
     HeaderIsNull=               -9,  //!< image header is NULL
     BadImageSize=              -10,  //!< image size is invalid
     BadOffset=                 -11,  //!< offset is invalid
     BadDataPtr=                -12,  //!<
-    BadStep=                   -13,  //!<
+    BadStep=                   -13,  //!< image step is wrong, this may happen for a non-continuous matrix.
     BadModelOrChSeq=           -14,  //!<
-    BadNumChannels=            -15,  //!<
+    BadNumChannels=            -15,  //!< bad number of channels, for example, some functions accept only single channel matrices.
     BadNumChannel1U=           -16,  //!<
-    BadDepth=                  -17,  //!<
+    BadDepth=                  -17,  //!< input image depth is not supported by the function
     BadAlphaChannel=           -18,  //!<
-    BadOrder=                  -19,  //!<
-    BadOrigin=                 -20,  //!<
-    BadAlign=                  -21,  //!<
+    BadOrder=                  -19,  //!< number of dimensions is out of range
+    BadOrigin=                 -20,  //!< incorrect input origin
+    BadAlign=                  -21,  //!< incorrect input align
     BadCallBack=               -22,  //!<
     BadTileSize=               -23,  //!<
-    BadCOI=                    -24,  //!<
-    BadROISize=                -25,  //!<
+    BadCOI=                    -24,  //!< input COI is not supported
+    BadROISize=                -25,  //!< incorrect input roi
     MaskIsTiled=               -26,  //!<
     StsNullPtr=                -27,  //!< null pointer
     StsVecLengthErr=           -28,  //!< incorrect vector length
-    StsFilterStructContentErr= -29,  //!< incorr. filter structure content
-    StsKernelStructContentErr= -30,  //!< incorr. transform kernel content
-    StsFilterOffsetErr=        -31,  //!< incorrect filter ofset value
+    StsFilterStructContentErr= -29,  //!< incorrect filter structure content
+    StsKernelStructContentErr= -30,  //!< incorrect transform kernel content
+    StsFilterOffsetErr=        -31,  //!< incorrect filter offset value
     StsBadSize=                -201, //!< the input/output structure size is incorrect
     StsDivByZero=              -202, //!< division by zero
     StsInplaceNotSupported=    -203, //!< in-place operation is not supported
@@ -111,13 +113,13 @@ enum Code {
     StsNotImplemented=         -213, //!< the requested function/feature is not implemented
     StsBadMemBlock=            -214, //!< an allocated block has been corrupted
     StsAssert=                 -215, //!< assertion failed
-    GpuNotSupported=           -216,
-    GpuApiCallError=           -217,
-    OpenGlNotSupported=        -218,
-    OpenGlApiCallError=        -219,
-    OpenCLApiCallError=        -220,
+    GpuNotSupported=           -216, //!< no CUDA support
+    GpuApiCallError=           -217, //!< GPU API call error
+    OpenGlNotSupported=        -218, //!< no OpenGL support
+    OpenGlApiCallError=        -219, //!< OpenGL API call error
+    OpenCLApiCallError=        -220, //!< OpenCL API call error
     OpenCLDoubleNotSupported=  -221,
-    OpenCLInitError=           -222,
+    OpenCLInitError=           -222, //!< OpenCL initialization error
     OpenCLNoAMDBlasFft=        -223
 };
 } //Error
@@ -164,7 +166,25 @@ enum DecompTypes {
 \f[norm =  \forkthree{\frac{\|\texttt{src1}-\texttt{src2}\|_{L_{\infty}}    }{\|\texttt{src2}\|_{L_{\infty}} }}{if  \(\texttt{normType} = \texttt{NORM_RELATIVE_INF}\) }
 { \frac{\|\texttt{src1}-\texttt{src2}\|_{L_1} }{\|\texttt{src2}\|_{L_1}} }{if  \(\texttt{normType} = \texttt{NORM_RELATIVE_L1}\) }
 { \frac{\|\texttt{src1}-\texttt{src2}\|_{L_2} }{\|\texttt{src2}\|_{L_2}} }{if  \(\texttt{normType} = \texttt{NORM_RELATIVE_L2}\) }\f]
-  */
+
+As example for one array consider the function \f$r(x)= \begin{pmatrix} x \\ 1-x \end{pmatrix}, x \in [-1;1]\f$.
+The \f$ L_{1}, L_{2} \f$ and \f$ L_{\infty} \f$ norm for the sample value \f$r(-1) = \begin{pmatrix} -1 \\ 2 \end{pmatrix}\f$
+is calculated as follows
+\f{align*}
+    \| r(-1) \|_{L_1} &= |-1| + |2| = 3 \\
+    \| r(-1) \|_{L_2} &= \sqrt{(-1)^{2} + (2)^{2}} = \sqrt{5} \\
+    \| r(-1) \|_{L_\infty} &= \max(|-1|,|2|) = 2
+\f}
+and for \f$r(0.5) = \begin{pmatrix} 0.5 \\ 0.5 \end{pmatrix}\f$ the calculation is
+\f{align*}
+    \| r(0.5) \|_{L_1} &= |0.5| + |0.5| = 1 \\
+    \| r(0.5) \|_{L_2} &= \sqrt{(0.5)^{2} + (0.5)^{2}} = \sqrt{0.5} \\
+    \| r(0.5) \|_{L_\infty} &= \max(|0.5|,|0.5|) = 0.5.
+\f}
+The following graphic shows all values for the three norm functions \f$\| r(x) \|_{L_1}, \| r(x) \|_{L_2}\f$ and \f$\| r(x) \|_{L_\infty}\f$.
+It is notable that the \f$ L_{1} \f$ norm forms the upper and the \f$ L_{\infty} \f$ norm forms the lower border for the example function \f$ r(x) \f$.
+![Graphs for the different norm functions from the above example](pics/NormTypes_OneArray_1-2-INF.png)
+ */
 enum NormTypes { NORM_INF       = 1,
                  NORM_L1        = 2,
                  NORM_L2        = 4,
@@ -219,6 +239,10 @@ enum DftFlags {
         into a real array and inverse transformation is executed, the function treats the input as a
         packed complex-conjugate symmetrical array, and the output will also be a real array). */
     DFT_REAL_OUTPUT    = 32,
+    /** specifies that input is complex input. If this flag is set, the input must have 2 channels.
+        On the other hand, for backwards compatibility reason, if input has 2 channels, input is
+        already considered complex. */
+    DFT_COMPLEX_INPUT  = 64,
     /** performs an inverse 1D or 2D transform instead of the default forward transform. */
     DCT_INVERSE        = DFT_INVERSE,
     /** performs a forward or inverse transform of every individual row of the input
@@ -260,6 +284,8 @@ enum BorderTypes {
 #  endif
 #  if __has_extension(cxx_static_assert)
 #    define CV_StaticAssert(condition, reason)    static_assert((condition), reason " " #condition)
+#  elif __has_extension(c_static_assert)
+#    define CV_StaticAssert(condition, reason)    _Static_assert((condition), reason " " #condition)
 #  endif
 #elif defined(__GNUC__)
 #  if (defined(__GXX_EXPERIMENTAL_CXX0X__) || __cplusplus >= 201103L)
@@ -316,8 +342,8 @@ It is possible to alternate error processing by using redirectError().
 @param _code - error code (Error::Code)
 @param _err - error description
 @param _func - function name. Available only when the compiler supports getting it
-@param _file - source file name where the error has occured
-@param _line - line number in the source file where the error has occured
+@param _file - source file name where the error has occurred
+@param _line - line number in the source file where the error has occurred
 @see CV_Error, CV_Error_, CV_ErrorNoReturn, CV_ErrorNoReturn_, CV_Assert, CV_DbgAssert
  */
 CV_EXPORTS void error(int _code, const String& _err, const char* _func, const char* _file, int _line);
@@ -354,6 +380,17 @@ CV_INLINE CV_NORETURN void errorNoReturn(int _code, const String& _err, const ch
 #else
 #define CV_Func ""
 #endif
+
+#ifdef CV_STATIC_ANALYSIS
+// In practice, some macro are not processed correctly (noreturn is not detected).
+// We need to use simplified definition for them.
+#define CV_Error(...) do { abort(); } while (0)
+#define CV_Error_(...) do { abort(); } while (0)
+#define CV_Assert(cond) do { if (!(cond)) abort(); } while (0)
+#define CV_ErrorNoReturn(...) do { abort(); } while (0)
+#define CV_ErrorNoReturn_(...) do { abort(); } while (0)
+
+#else // CV_STATIC_ANALYSIS
 
 /** @brief Call the error handler.
 
@@ -394,6 +431,8 @@ configurations while CV_DbgAssert is only retained in the Debug configuration.
 
 /** same as CV_Error_(code,args), but does not return */
 #define CV_ErrorNoReturn_( code, args ) cv::errorNoReturn( code, cv::format args, CV_Func, __FILE__, __LINE__ )
+
+#endif // CV_STATIC_ANALYSIS
 
 /** replaced with CV_Assert(expr) in Debug configuration */
 #ifdef _DEBUG
@@ -645,12 +684,17 @@ namespace cudev
 
 namespace ipp
 {
-CV_EXPORTS void setIppStatus(int status, const char * const funcname = NULL, const char * const filename = NULL,
+#if OPENCV_ABI_COMPATIBILITY > 300
+CV_EXPORTS   unsigned long long getIppFeatures();
+#else
+CV_EXPORTS   int getIppFeatures();
+#endif
+CV_EXPORTS   void setIppStatus(int status, const char * const funcname = NULL, const char * const filename = NULL,
                              int line = 0);
-CV_EXPORTS int getIppStatus();
-CV_EXPORTS String getIppErrorLocation();
-CV_EXPORTS bool useIPP();
-CV_EXPORTS void setUseIPP(bool flag);
+CV_EXPORTS   int getIppStatus();
+CV_EXPORTS   String getIppErrorLocation();
+CV_EXPORTS_W bool useIPP();
+CV_EXPORTS_W void setUseIPP(bool flag);
 
 } // ipp
 
@@ -658,89 +702,11 @@ CV_EXPORTS void setUseIPP(bool flag);
 
 //! @} core_utils
 
-//! @addtogroup core_utils_neon
-//! @{
 
-#if CV_NEON
 
-inline int32x2_t cv_vrnd_s32_f32(float32x2_t v)
-{
-    static int32x2_t v_sign = vdup_n_s32(1 << 31),
-        v_05 = vreinterpret_s32_f32(vdup_n_f32(0.5f));
-
-    int32x2_t v_addition = vorr_s32(v_05, vand_s32(v_sign, vreinterpret_s32_f32(v)));
-    return vcvt_s32_f32(vadd_f32(v, vreinterpret_f32_s32(v_addition)));
-}
-
-inline int32x4_t cv_vrndq_s32_f32(float32x4_t v)
-{
-    static int32x4_t v_sign = vdupq_n_s32(1 << 31),
-        v_05 = vreinterpretq_s32_f32(vdupq_n_f32(0.5f));
-
-    int32x4_t v_addition = vorrq_s32(v_05, vandq_s32(v_sign, vreinterpretq_s32_f32(v)));
-    return vcvtq_s32_f32(vaddq_f32(v, vreinterpretq_f32_s32(v_addition)));
-}
-
-inline uint32x2_t cv_vrnd_u32_f32(float32x2_t v)
-{
-    static float32x2_t v_05 = vdup_n_f32(0.5f);
-    return vcvt_u32_f32(vadd_f32(v, v_05));
-}
-
-inline uint32x4_t cv_vrndq_u32_f32(float32x4_t v)
-{
-    static float32x4_t v_05 = vdupq_n_f32(0.5f);
-    return vcvtq_u32_f32(vaddq_f32(v, v_05));
-}
-
-inline float32x4_t cv_vrecpq_f32(float32x4_t val)
-{
-    float32x4_t reciprocal = vrecpeq_f32(val);
-    reciprocal = vmulq_f32(vrecpsq_f32(val, reciprocal), reciprocal);
-    reciprocal = vmulq_f32(vrecpsq_f32(val, reciprocal), reciprocal);
-    return reciprocal;
-}
-
-inline float32x2_t cv_vrecp_f32(float32x2_t val)
-{
-    float32x2_t reciprocal = vrecpe_f32(val);
-    reciprocal = vmul_f32(vrecps_f32(val, reciprocal), reciprocal);
-    reciprocal = vmul_f32(vrecps_f32(val, reciprocal), reciprocal);
-    return reciprocal;
-}
-
-inline float32x4_t cv_vrsqrtq_f32(float32x4_t val)
-{
-    float32x4_t e = vrsqrteq_f32(val);
-    e = vmulq_f32(vrsqrtsq_f32(vmulq_f32(e, e), val), e);
-    e = vmulq_f32(vrsqrtsq_f32(vmulq_f32(e, e), val), e);
-    return e;
-}
-
-inline float32x2_t cv_vrsqrt_f32(float32x2_t val)
-{
-    float32x2_t e = vrsqrte_f32(val);
-    e = vmul_f32(vrsqrts_f32(vmul_f32(e, e), val), e);
-    e = vmul_f32(vrsqrts_f32(vmul_f32(e, e), val), e);
-    return e;
-}
-
-inline float32x4_t cv_vsqrtq_f32(float32x4_t val)
-{
-    return cv_vrecpq_f32(cv_vrsqrtq_f32(val));
-}
-
-inline float32x2_t cv_vsqrt_f32(float32x2_t val)
-{
-    return cv_vrecp_f32(cv_vrsqrt_f32(val));
-}
-
-#endif
-
-//! @} core_utils_neon
 
 } // cv
 
-#include "sse_utils.hpp"
+#include "opencv2/core/neon_utils.hpp"
 
-#endif //__OPENCV_CORE_BASE_HPP__
+#endif //OPENCV_CORE_BASE_HPP

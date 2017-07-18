@@ -41,8 +41,8 @@
 //
 //M*/
 
-#ifndef __OPENCV_CORE_MATX_HPP__
-#define __OPENCV_CORE_MATX_HPP__
+#ifndef OPENCV_CORE_MATX_HPP
+#define OPENCV_CORE_MATX_HPP
 
 #ifndef __cplusplus
 #  error matx.hpp header must be compiled as C++
@@ -51,6 +51,11 @@
 #include "opencv2/core/cvdef.h"
 #include "opencv2/core/base.hpp"
 #include "opencv2/core/traits.hpp"
+#include "opencv2/core/saturate.hpp"
+
+#ifdef CV_CXX11
+#include <initializer_list>
+#endif
 
 namespace cv
 {
@@ -76,12 +81,21 @@ If you need a more flexible type, use Mat . The elements of the matrix M are acc
 M(i,j) notation. Most of the common matrix operations (see also @ref MatrixExpressions ) are
 available. To do an operation on Matx that is not implemented, you can easily convert the matrix to
 Mat and backwards:
-@code
+@code{.cpp}
     Matx33f m(1, 2, 3,
               4, 5, 6,
               7, 8, 9);
     cout << sum(Mat(m*m.t())) << endl;
- @endcode
+@endcode
+Except of the plain constructor which takes a list of elements, Matx can be initialized from a C-array:
+@code{.cpp}
+    float values[] = { 1, 2, 3};
+    Matx31f m(values);
+@endcode
+In case if C++11 features are avaliable, std::initializer_list can be also used to initizlize Matx:
+@code{.cpp}
+    Matx31f m = { 1, 2, 3};
+@endcode
  */
 template<typename _Tp, int m, int n> class Matx
 {
@@ -117,8 +131,16 @@ public:
     Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3,
          _Tp v4, _Tp v5, _Tp v6, _Tp v7,
          _Tp v8, _Tp v9, _Tp v10, _Tp v11,
+         _Tp v12, _Tp v13); //!< 1x14, 2x7, 7x2 or 14x1 matrix
+    Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3,
+         _Tp v4, _Tp v5, _Tp v6, _Tp v7,
+         _Tp v8, _Tp v9, _Tp v10, _Tp v11,
          _Tp v12, _Tp v13, _Tp v14, _Tp v15); //!< 1x16, 4x4 or 16x1 matrix
     explicit Matx(const _Tp* vals); //!< initialize from a plain array
+
+#ifdef CV_CXX11
+    Matx(std::initializer_list<_Tp>); //!< initialize from an initializer list
+#endif
 
     static Matx all(_Tp alpha);
     static Matx zeros();
@@ -319,7 +341,12 @@ public:
     Vec(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7); //!< 8-element vector constructor
     Vec(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8); //!< 9-element vector constructor
     Vec(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8, _Tp v9); //!< 10-element vector constructor
+    Vec(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8, _Tp v9, _Tp v10, _Tp v11, _Tp v12, _Tp v13); //!< 14-element vector constructor
     explicit Vec(const _Tp* values);
+
+#ifdef CV_CXX11
+    Vec(std::initializer_list<_Tp>);
+#endif
 
     Vec(const Vec<_Tp, cn>& v);
 
@@ -432,7 +459,7 @@ template<typename _Tp, int m> struct Matx_DetOp
             return p;
         for( int i = 0; i < m; i++ )
             p *= temp(i, i);
-        return 1./p;
+        return p;
     }
 };
 
@@ -494,7 +521,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0)
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1)
 {
-    CV_StaticAssert(channels >= 2, "Matx should have at least 2 elaments.");
+    CV_StaticAssert(channels >= 2, "Matx should have at least 2 elements.");
     val[0] = v0; val[1] = v1;
     for(int i = 2; i < channels; i++) val[i] = _Tp(0);
 }
@@ -502,7 +529,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1)
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2)
 {
-    CV_StaticAssert(channels >= 3, "Matx should have at least 3 elaments.");
+    CV_StaticAssert(channels >= 3, "Matx should have at least 3 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2;
     for(int i = 3; i < channels; i++) val[i] = _Tp(0);
 }
@@ -510,7 +537,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2)
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3)
 {
-    CV_StaticAssert(channels >= 4, "Matx should have at least 4 elaments.");
+    CV_StaticAssert(channels >= 4, "Matx should have at least 4 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     for(int i = 4; i < channels; i++) val[i] = _Tp(0);
 }
@@ -518,7 +545,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3)
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4)
 {
-    CV_StaticAssert(channels >= 5, "Matx should have at least 5 elaments.");
+    CV_StaticAssert(channels >= 5, "Matx should have at least 5 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3; val[4] = v4;
     for(int i = 5; i < channels; i++) val[i] = _Tp(0);
 }
@@ -526,7 +553,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4)
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5)
 {
-    CV_StaticAssert(channels >= 6, "Matx should have at least 6 elaments.");
+    CV_StaticAssert(channels >= 6, "Matx should have at least 6 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     val[4] = v4; val[5] = v5;
     for(int i = 6; i < channels; i++) val[i] = _Tp(0);
@@ -535,7 +562,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5)
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6)
 {
-    CV_StaticAssert(channels >= 7, "Matx should have at least 7 elaments.");
+    CV_StaticAssert(channels >= 7, "Matx should have at least 7 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     val[4] = v4; val[5] = v5; val[6] = v6;
     for(int i = 7; i < channels; i++) val[i] = _Tp(0);
@@ -544,7 +571,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6)
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7)
 {
-    CV_StaticAssert(channels >= 8, "Matx should have at least 8 elaments.");
+    CV_StaticAssert(channels >= 8, "Matx should have at least 8 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     val[4] = v4; val[5] = v5; val[6] = v6; val[7] = v7;
     for(int i = 8; i < channels; i++) val[i] = _Tp(0);
@@ -553,7 +580,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _T
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8)
 {
-    CV_StaticAssert(channels >= 9, "Matx should have at least 9 elaments.");
+    CV_StaticAssert(channels >= 9, "Matx should have at least 9 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     val[4] = v4; val[5] = v5; val[6] = v6; val[7] = v7;
     val[8] = v8;
@@ -563,7 +590,7 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _T
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8, _Tp v9)
 {
-    CV_StaticAssert(channels >= 10, "Matx should have at least 10 elaments.");
+    CV_StaticAssert(channels >= 10, "Matx should have at least 10 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     val[4] = v4; val[5] = v5; val[6] = v6; val[7] = v7;
     val[8] = v8; val[9] = v9;
@@ -574,20 +601,34 @@ Matx<_Tp, m, n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _T
 template<typename _Tp, int m, int n> inline
 Matx<_Tp,m,n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8, _Tp v9, _Tp v10, _Tp v11)
 {
-    CV_StaticAssert(channels == 12, "Matx should have at least 12 elaments.");
+    CV_StaticAssert(channels >= 12, "Matx should have at least 12 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     val[4] = v4; val[5] = v5; val[6] = v6; val[7] = v7;
     val[8] = v8; val[9] = v9; val[10] = v10; val[11] = v11;
+    for(int i = 12; i < channels; i++) val[i] = _Tp(0);
 }
+
+template<typename _Tp, int m, int n> inline
+Matx<_Tp,m,n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8, _Tp v9, _Tp v10, _Tp v11, _Tp v12, _Tp v13)
+{
+    CV_StaticAssert(channels >= 14, "Matx should have at least 14 elements.");
+    val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
+    val[4] = v4; val[5] = v5; val[6] = v6; val[7] = v7;
+    val[8] = v8; val[9] = v9; val[10] = v10; val[11] = v11;
+    val[12] = v12; val[13] = v13;
+    for (int i = 14; i < channels; i++) val[i] = _Tp(0);
+}
+
 
 template<typename _Tp, int m, int n> inline
 Matx<_Tp,m,n>::Matx(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8, _Tp v9, _Tp v10, _Tp v11, _Tp v12, _Tp v13, _Tp v14, _Tp v15)
 {
-    CV_StaticAssert(channels == 16, "Matx should have at least 16 elaments.");
+    CV_StaticAssert(channels >= 16, "Matx should have at least 16 elements.");
     val[0] = v0; val[1] = v1; val[2] = v2; val[3] = v3;
     val[4] = v4; val[5] = v5; val[6] = v6; val[7] = v7;
     val[8] = v8; val[9] = v9; val[10] = v10; val[11] = v11;
     val[12] = v12; val[13] = v13; val[14] = v14; val[15] = v15;
+    for(int i = 16; i < channels; i++) val[i] = _Tp(0);
 }
 
 template<typename _Tp, int m, int n> inline
@@ -595,6 +636,19 @@ Matx<_Tp, m, n>::Matx(const _Tp* values)
 {
     for( int i = 0; i < channels; i++ ) val[i] = values[i];
 }
+
+#ifdef CV_CXX11
+template<typename _Tp, int m, int n> inline
+Matx<_Tp, m, n>::Matx(std::initializer_list<_Tp> list)
+{
+    CV_DbgAssert(list.size() == channels);
+    int i = 0;
+    for(const auto& elem : list)
+    {
+        val[i++] = elem;
+    }
+}
+#endif
 
 template<typename _Tp, int m, int n> inline
 Matx<_Tp, m, n> Matx<_Tp, m, n>::all(_Tp alpha)
@@ -838,9 +892,17 @@ double norm(const Matx<_Tp, m, n>& M)
 template<typename _Tp, int m, int n> static inline
 double norm(const Matx<_Tp, m, n>& M, int normType)
 {
-    return normType == NORM_INF ? (double)normInf<_Tp, typename DataType<_Tp>::work_type>(M.val, m*n) :
-        normType == NORM_L1 ? (double)normL1<_Tp, typename DataType<_Tp>::work_type>(M.val, m*n) :
-        std::sqrt((double)normL2Sqr<_Tp, typename DataType<_Tp>::work_type>(M.val, m*n));
+    switch(normType) {
+    case NORM_INF:
+        return (double)normInf<_Tp, typename DataType<_Tp>::work_type>(M.val, m*n);
+    case NORM_L1:
+        return (double)normL1<_Tp, typename DataType<_Tp>::work_type>(M.val, m*n);
+    case NORM_L2SQR:
+        return (double)normL2Sqr<_Tp, typename DataType<_Tp>::work_type>(M.val, m*n);
+    default:
+    case NORM_L2:
+        return std::sqrt((double)normL2Sqr<_Tp, typename DataType<_Tp>::work_type>(M.val, m*n));
+    }
 }
 
 
@@ -922,8 +984,18 @@ Vec<_Tp, cn>::Vec(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7
     : Matx<_Tp, cn, 1>(v0, v1, v2, v3, v4, v5, v6, v7, v8, v9) {}
 
 template<typename _Tp, int cn> inline
+Vec<_Tp, cn>::Vec(_Tp v0, _Tp v1, _Tp v2, _Tp v3, _Tp v4, _Tp v5, _Tp v6, _Tp v7, _Tp v8, _Tp v9, _Tp v10, _Tp v11, _Tp v12, _Tp v13)
+    : Matx<_Tp, cn, 1>(v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13) {}
+
+template<typename _Tp, int cn> inline
 Vec<_Tp, cn>::Vec(const _Tp* values)
     : Matx<_Tp, cn, 1>(values) {}
+
+#ifdef CV_CXX11
+template<typename _Tp, int cn> inline
+Vec<_Tp, cn>::Vec(std::initializer_list<_Tp> list)
+    : Matx<_Tp, cn, 1>(list) {}
+#endif
 
 template<typename _Tp, int cn> inline
 Vec<_Tp, cn>::Vec(const Vec<_Tp, cn>& m)
@@ -991,17 +1063,17 @@ Vec<_Tp, cn> Vec<_Tp, cn>::cross(const Vec<_Tp, cn>&) const
 template<> inline
 Vec<float, 3> Vec<float, 3>::cross(const Vec<float, 3>& v) const
 {
-    return Vec<float,3>(val[1]*v.val[2] - val[2]*v.val[1],
-                     val[2]*v.val[0] - val[0]*v.val[2],
-                     val[0]*v.val[1] - val[1]*v.val[0]);
+    return Vec<float,3>(this->val[1]*v.val[2] - this->val[2]*v.val[1],
+                     this->val[2]*v.val[0] - this->val[0]*v.val[2],
+                     this->val[0]*v.val[1] - this->val[1]*v.val[0]);
 }
 
 template<> inline
 Vec<double, 3> Vec<double, 3>::cross(const Vec<double, 3>& v) const
 {
-    return Vec<double,3>(val[1]*v.val[2] - val[2]*v.val[1],
-                     val[2]*v.val[0] - val[0]*v.val[2],
-                     val[0]*v.val[1] - val[1]*v.val[0]);
+    return Vec<double,3>(this->val[1]*v.val[2] - this->val[2]*v.val[1],
+                     this->val[2]*v.val[0] - this->val[0]*v.val[2],
+                     this->val[0]*v.val[1] - this->val[1]*v.val[0]);
 }
 
 template<typename _Tp, int cn> template<typename T2> inline
@@ -1049,7 +1121,7 @@ Vec<_Tp, cn> normalize(const Vec<_Tp, cn>& v)
 
 
 
-//////////////////////////////// matx comma initializer //////////////////////////////////
+//////////////////////////////// vec comma initializer //////////////////////////////////
 
 
 template<typename _Tp, typename _T2, int cn> static inline
@@ -1373,4 +1445,4 @@ template<typename _Tp> inline Vec<_Tp, 4>& operator *= (Vec<_Tp, 4>& v1, const V
 
 } // cv
 
-#endif // __OPENCV_CORE_MATX_HPP__
+#endif // OPENCV_CORE_MATX_HPP

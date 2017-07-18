@@ -46,6 +46,8 @@
 
 using namespace cvtest;
 
+namespace {
+
 //////////////////////////////////////////////////////////////////////////
 // StereoBM
 
@@ -163,7 +165,7 @@ CUDA_TEST_P(StereoConstantSpaceBP, Regression)
     cv::Mat h_disp(disp);
     h_disp.convertTo(h_disp, disp_gold.depth());
 
-    EXPECT_MAT_NEAR(disp_gold, h_disp, 1.0);
+    EXPECT_MAT_SIMILAR(disp_gold, h_disp, 1e-4);
 }
 
 INSTANTIATE_TEST_CASE_P(CUDA_Stereo, StereoConstantSpaceBP, ALL_DEVICES);
@@ -208,5 +210,7 @@ INSTANTIATE_TEST_CASE_P(CUDA_Stereo, ReprojectImageTo3D, testing::Combine(
     DIFFERENT_SIZES,
     testing::Values(MatDepth(CV_8U), MatDepth(CV_16S)),
     WHOLE_SUBMAT));
+
+} // namespace
 
 #endif // HAVE_CUDA

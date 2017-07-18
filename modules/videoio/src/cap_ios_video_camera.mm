@@ -41,14 +41,16 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
 
 
 
-@interface CvVideoCamera ()
+@interface CvVideoCamera () {
+    int recordingCountDown;
+}
 
 - (void)createVideoDataOutput;
 - (void)createVideoFileOutput;
 
 
-@property (nonatomic, retain) CALayer *customPreviewLayer;
-@property (nonatomic, retain) AVCaptureVideoDataOutput *videoDataOutput;
+@property (nonatomic, strong) CALayer *customPreviewLayer;
+@property (nonatomic, strong) AVCaptureVideoDataOutput *videoDataOutput;
 
 @end
 
@@ -59,11 +61,12 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
 
 
 @implementation CvVideoCamera
+{
+    id<CvVideoCameraDelegate> _delegate;
+}
 
 
 
-
-@synthesize delegate;
 @synthesize grayscaleMode;
 
 @synthesize customPreviewLayer;
@@ -76,7 +79,13 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
 @synthesize recordPixelBufferAdaptor;
 @synthesize recordAssetWriter;
 
+- (void)setDelegate:(id<CvVideoCameraDelegate>)newDelegate {
+    _delegate = newDelegate;
+}
 
+- (id<CvVideoCameraDelegate>)delegate {
+    return _delegate;
+}
 
 #pragma mark - Constructors
 
@@ -98,6 +107,11 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
 
 - (void)start;
 {
+    if (self.running == YES) {
+        return;
+    }
+
+    recordingCountDown = 10;
     [super start];
 
     if (self.recordVideo == YES) {
@@ -115,29 +129,34 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
 
 - (void)stop;
 {
-    [super stop];
+    if (self.running == YES) {
+        [super stop];
 
-    self.videoDataOutput = nil;
-    if (videoDataOutputQueue) {
-        dispatch_release(videoDataOutputQueue);
-    }
-
-    if (self.recordVideo == YES) {
-
-        if (self.recordAssetWriter.status == AVAssetWriterStatusWriting) {
-            [self.recordAssetWriter finishWriting];
-            NSLog(@"[Camera] recording stopped");
-        } else {
-            NSLog(@"[Camera] Recording Error: asset writer status is not writing");
+        [videoDataOutput release];
+        if (videoDataOutputQueue) {
+            dispatch_release(videoDataOutputQueue);
         }
 
-        self.recordAssetWriter = nil;
-        self.recordAssetWriterInput = nil;
-        self.recordPixelBufferAdaptor = nil;
-    }
+        if (self.recordVideo == YES) {
+            if (self.recordAssetWriter) {
+                if (self.recordAssetWriter.status == AVAssetWriterStatusWriting) {
+                    [self.recordAssetWriter finishWriting];
+                    NSLog(@"[Camera] recording stopped");
+                } else {
+                    NSLog(@"[Camera] Recording Error: asset writer status is not writing");
+                }
+                [recordAssetWriter release];
+            }
 
-    [self.customPreviewLayer removeFromSuperlayer];
-    self.customPreviewLayer = nil;
+            [recordAssetWriterInput release];
+            [recordPixelBufferAdaptor release];
+        }
+
+        if (self.customPreviewLayer) {
+            [self.customPreviewLayer removeFromSuperlayer];
+            self.customPreviewLayer = nil;
+        }
+    }
 }
 
 // TODO fix
@@ -173,7 +192,7 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
                 break; // leave the layer in its last known orientation
         }
 
-        switch (defaultAVCaptureVideoOrientation) {
+        switch (self.defaultAVCaptureVideoOrientation) {
             case AVCaptureVideoOrientationLandscapeRight:
                 rotation_angle += 180;
                 break;
@@ -239,7 +258,7 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
                 break; // leave the layer in its last known orientation
         }
 
-        switch (defaultAVCaptureVideoOrientation) {
+        switch (self.defaultAVCaptureVideoOrientation) {
             case AVCaptureVideoOrientationLandscapeRight:
                 rotation_angle += 180;
                 break;
@@ -440,7 +459,8 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
 {
     (void)captureOutput;
     (void)connection;
-    if (self.delegate) {
+    auto strongDelegate = self.delegate;
+    if (strongDelegate) {
 
         // convert from Core Media to Core Video
         CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
@@ -482,8 +502,8 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
 
         CGImage* dstImage;
 
-        if ([self.delegate respondsToSelector:@selector(processImage:)]) {
-            [self.delegate processImage:image];
+        if ([strongDelegate respondsToSelector:@selector(processImage:)]) {
+            [strongDelegate processImage:image];
         }
 
         // check if matrix data pointer or dimensions were changed by the delegate
@@ -551,7 +571,8 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
         });
 
 
-        if (self.recordVideo == YES) {
+        recordingCountDown--;
+        if (self.recordVideo == YES && recordingCountDown < 0) {
             lastSampleTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
 //			CMTimeShow(lastSampleTime);
             if (self.recordAssetWriter.status != AVAssetWriterStatusWriting) {
@@ -571,6 +592,8 @@ static CGFloat DegreesToRadians(CGFloat degrees) {return degrees * M_PI / 180;}
                                                   withPresentationTime:lastSampleTime] ) {
                     NSLog(@"Video Writing Error");
                 }
+                if (pixelBuffer != nullptr)
+                    CVPixelBufferRelease(pixelBuffer);
             }
 
         }

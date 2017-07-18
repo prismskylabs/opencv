@@ -46,7 +46,7 @@ histograms](http://docs.opencv.org/doc/tutorials/imgproc/histograms/histogram_ca
 
 So what you do is simply split the whole histogram to 16 sub-parts and value of each sub-part is the
 sum of all pixel count in it. This each sub-part is called "BIN". In first case, number of bins
-where 256 (one for each pixel) while in second case, it is only 16. BINS is represented by the term
+were 256 (one for each pixel) while in second case, it is only 16. BINS is represented by the term
 **histSize** in OpenCV docs.
 
 **DIMS** : It is the number of parameters for which we collect the data. In this case, we collect
@@ -155,8 +155,8 @@ should be due to the sky)
 
 Well, here you adjust the values of histograms along with its bin values to look like x,y
 coordinates so that you can draw it using cv2.line() or cv2.polyline() function to generate same
-image as above. This is already available with OpenCV-Python2 official samples. [Check the
-Code](https://github.com/Itseez/opencv/raw/master/samples/python2/hist.py)
+image as above. This is already available with OpenCV-Python2 official samples. Check the
+code at samples/python/hist.py.
 
 Application of Mask
 -------------------

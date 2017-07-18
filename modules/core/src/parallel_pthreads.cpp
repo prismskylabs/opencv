@@ -112,7 +112,7 @@ class ForThread
 {
 public:
 
-    ForThread(): m_task_start(false), m_parent(0), m_state(eFTNotStarted), m_id(0)
+    ForThread(): m_posix_thread(0), m_task_start(false), m_parent(0), m_state(eFTNotStarted), m_id(0)
     {
     }
 
@@ -141,10 +141,10 @@ private:
     pthread_t       m_posix_thread;
     pthread_mutex_t m_thread_mutex;
     pthread_cond_t  m_cond_thread_task;
-    bool            m_task_start;
+    volatile bool   m_task_start;
 
     ThreadManager*  m_parent;
-    ForThreadState  m_state;
+    volatile ForThreadState m_state;
     size_t          m_id;
 };
 
@@ -155,21 +155,8 @@ public:
 
     static ThreadManager& instance()
     {
-        if(!m_instance.ptr)
-        {
-            pthread_mutex_lock(&m_manager_access_mutex);
-
-            if(!m_instance.ptr)
-            {
-                m_instance.ptr = new ThreadManager();
-            }
-
-            pthread_mutex_unlock(&m_manager_access_mutex);
-        }
-
-        return *m_instance.ptr;
+        CV_SINGLETON_LAZY_INIT_REF(ThreadManager, new ThreadManager())
     }
-
 
     static void stop()
     {
@@ -194,21 +181,6 @@ public:
 
 private:
 
-    struct ptr_holder
-    {
-        ThreadManager* ptr;
-
-        ptr_holder(): ptr(NULL) { }
-
-        ~ptr_holder()
-        {
-            if(ptr)
-            {
-                delete ptr;
-            }
-        }
-    };
-
     ThreadManager();
 
     ~ThreadManager();
@@ -231,11 +203,9 @@ private:
     unsigned int m_task_position;
     unsigned int m_num_of_completed_tasks;
 
-    static pthread_mutex_t m_manager_access_mutex;
-    static ptr_holder m_instance;
+    pthread_mutex_t m_manager_access_mutex;
 
     static const char m_env_name[];
-    static const unsigned int m_default_number_of_threads;
 
     work_load m_work_load;
 
@@ -250,22 +220,7 @@ private:
     ThreadManagerPoolState m_pool_state;
 };
 
-#ifndef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
-#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP PTHREAD_RECURSIVE_MUTEX_INITIALIZER
-#endif
-
-pthread_mutex_t ThreadManager::m_manager_access_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
-
-ThreadManager::ptr_holder ThreadManager::m_instance;
 const char ThreadManager::m_env_name[] = "OPENCV_FOR_THREADS_NUM";
-
-#ifdef ANDROID
-// many modern phones/tables have 4-core CPUs. Let's use no more
-// than 2 threads by default not to overheat the devices
-const unsigned int ThreadManager::m_default_number_of_threads = 2;
-#else
-const unsigned int ThreadManager::m_default_number_of_threads = 8;
-#endif
 
 ForThread::~ForThread()
 {
@@ -304,14 +259,18 @@ void ForThread::stop()
 {
     if(m_state == eFTStarted)
     {
+        pthread_mutex_lock(&m_thread_mutex);
         m_state = eFTToStop;
+        pthread_mutex_unlock(&m_thread_mutex);
 
         run();
 
         pthread_join(m_posix_thread, NULL);
     }
 
+    pthread_mutex_lock(&m_thread_mutex);
     m_state = eFTStoped;
+    pthread_mutex_unlock(&m_thread_mutex);
 }
 
 void ForThread::run()
@@ -350,6 +309,8 @@ void ForThread::execute()
 
 void ForThread::thread_body()
 {
+    (void)cv::utils::getThreadID(); // notify OpenCV about new thread
+
     m_parent->m_is_work_thread.get()->value = true;
 
     pthread_mutex_lock(&m_thread_mutex);
@@ -378,6 +339,12 @@ void ForThread::thread_body()
 ThreadManager::ThreadManager(): m_num_threads(0), m_task_complete(false), m_num_of_completed_tasks(0), m_pool_state(eTMNotInited)
 {
     int res = 0;
+
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    res |= pthread_mutex_init(&m_manager_access_mutex, &attr);
+    pthread_mutexattr_destroy(&attr);
 
     res |= pthread_mutex_init(&m_manager_task_mutex, NULL);
 
@@ -560,7 +527,15 @@ void ThreadManager::setNumOfThreads(size_t n)
 
 size_t ThreadManager::defaultNumberOfThreads()
 {
-    unsigned int result = m_default_number_of_threads;
+#ifdef __ANDROID__
+    // many modern phones/tables have 4-core CPUs. Let's use no more
+    // than 2 threads by default not to overheat the devices
+    const unsigned int default_number_of_threads = 2;
+#else
+    const unsigned int default_number_of_threads = (unsigned int)std::max(1, cv::getNumberOfCPUs());
+#endif
+
+    unsigned int result = default_number_of_threads;
 
     char * env = getenv(m_env_name);
 
