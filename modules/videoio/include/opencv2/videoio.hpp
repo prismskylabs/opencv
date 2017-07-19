@@ -849,14 +849,14 @@ public:
     - If FFMPEG is enabled, using `codec=0; fps=0;` you can create an uncompressed (raw) video file.
     */
     CV_WRAP VideoWriter(const String& filename, int fourcc, double fps,
-                Size frameSize, bool isColor = true, int quality = 100);
+                Size frameSize, bool isColor = true, int bitrate = 0);
 
     /** @overload
     The `apiPreference` parameter allows to specify API backends to use. Can be used to enforce a specific reader implementation
     if multiple are available: e.g. cv::CAP_FFMPEG or cv::CAP_GSTREAMER.
      */
     CV_WRAP VideoWriter(const String& filename, int apiPreference, int fourcc, double fps,
-                Size frameSize, bool isColor = true, int quality = 100);
+                Size frameSize, bool isColor = true, int bitrate = 0);
 
     /** @brief Default destructor
 
@@ -873,12 +873,12 @@ public:
     The method first calls VideoWriter::release to close the already opened file.
      */
     CV_WRAP virtual bool open(const String& filename, int fourcc, double fps,
-                      Size frameSize, bool isColor = true, int quality = 100);
+                              Size frameSize, bool isColor = true, int bitrate = 0);
 
     /** @overload
      */
     CV_WRAP bool open(const String& filename, int apiPreference, int fourcc, double fps,
-                      Size frameSize, bool isColor = true, int quality = 100);
+                      Size frameSize, bool isColor = true, int bitrate = 0);
 
     /** @brief Returns true if video writer has been successfully initialized.
     */
