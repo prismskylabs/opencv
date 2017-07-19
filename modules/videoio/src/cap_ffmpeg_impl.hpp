@@ -1280,7 +1280,7 @@ bool CvCapture_FFMPEG::setProperty( int property_id, double value )
 struct CvVideoWriter_FFMPEG
 {
     bool open( const char* filename, int fourcc,
-               double fps, int width, int height, bool isColor );
+               double fps, int width, int height, bool isColor, int quality );
     void close();
     bool writeFrame( const unsigned char* data, int step, int width, int height, int cn, int origin );
 
@@ -1424,7 +1424,7 @@ static AVFrame * icv_alloc_picture_FFMPEG(int pix_fmt, int width, int height, bo
 static AVStream *icv_add_video_stream_FFMPEG(AVFormatContext *oc,
                                              CV_CODEC_ID codec_id,
                                              int w, int h, int bitrate,
-                                             double fps, int pixel_format)
+                                             double fps, int pixel_format, int quality)
 {
     AVCodecContext *c;
     AVStream *st;
@@ -1546,7 +1546,12 @@ static AVStream *icv_add_video_stream_FFMPEG(AVFormatContext *oc,
       c->qmin = -1;
       c->bit_rate = 0;
       if (c->priv_data)
-          av_opt_set(c->priv_data,"crf","23", 0);
+      {
+          int crf = 51 * (1. - quality * 0.01);
+          char buf[33];
+          sprintf(buf, "%d", crf);
+          av_opt_set(c->priv_data, "crf", buf, 0);
+      }
     }
 #endif
 
@@ -1852,7 +1857,7 @@ static inline bool cv_ff_codec_tag_list_match(const AVCodecTag *const *tags, CV_
 
 /// Create a video writer object that uses FFMPEG
 bool CvVideoWriter_FFMPEG::open( const char * filename, int fourcc,
-                                 double fps, int width, int height, bool is_color )
+                                 double fps, int width, int height, bool is_color, int quality )
 {
     CV_CODEC_ID codec_id = CV_CODEC(CODEC_ID_NONE);
     int err, codec_pix_fmt;
@@ -1983,12 +1988,12 @@ bool CvVideoWriter_FFMPEG::open( const char * filename, int fourcc,
         break;
     }
 
-    double bitrate = MIN(bitrate_scale*fps*width*height, (double)INT_MAX/2);
+    double bitrate = MIN(bitrate_scale*fps*width*height*quality/100, (double)INT_MAX/2);
 
     // TODO -- safe to ignore output audio stream?
     video_st = icv_add_video_stream_FFMPEG(oc, codec_id,
                                            width, height, (int)(bitrate + 0.5),
-                                           fps, codec_pix_fmt);
+                                           fps, codec_pix_fmt, quality);
 
     /* set the output parameters (must be done even if no
    parameters). */
@@ -2163,13 +2168,13 @@ int cvRetrieveFrame_FFMPEG(CvCapture_FFMPEG* capture, unsigned char** data, int*
 }
 
 CvVideoWriter_FFMPEG* cvCreateVideoWriter_FFMPEG( const char* filename, int fourcc, double fps,
-                                                  int width, int height, int isColor )
+                                                  int width, int height, int isColor, int quality )
 {
     CvVideoWriter_FFMPEG* writer = (CvVideoWriter_FFMPEG*)malloc(sizeof(*writer));
     if (!writer)
         return 0;
     writer->init();
-    if( writer->open( filename, fourcc, fps, width, height, isColor != 0 ))
+    if( writer->open( filename, fourcc, fps, width, height, isColor != 0, quality ))
         return writer;
     writer->close();
     free(writer);

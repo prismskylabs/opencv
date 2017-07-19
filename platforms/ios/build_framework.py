@@ -278,10 +278,13 @@ if __name__ == "__main__":
 
     b = iOSBuilder(args.opencv, args.contrib, args.dynamic, args.bitcodedisabled, args.without,
         [
-            (["armv7", "arm64"], "iPhoneOS"),
+#            (["armv7", "arm64"], "iPhoneOS"),
+            (["arm64"], "iPhoneOS"),
         ] if os.environ.get('BUILD_PRECOMMIT', None) else
         [
-            (["armv7", "armv7s", "arm64"], "iPhoneOS"),
-            (["i386", "x86_64"], "iPhoneSimulator"),
+#            (["armv7", "armv7s", "arm64"], "iPhoneOS"),
+#            (["i386", "x86_64"], "iPhoneSimulator"),
+            (["arm64"], "iPhoneOS"),
+            (["x86_64"], "iPhoneSimulator"),
         ])
     b.build(args.out)
