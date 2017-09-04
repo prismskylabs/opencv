@@ -53,6 +53,10 @@
 
 #include "opencv2/core/bufferpool.hpp"
 
+#ifdef CV_CXX11
+#include <type_traits>
+#endif
+
 namespace cv
 {
 
@@ -61,6 +65,8 @@ namespace cv
 
 enum { ACCESS_READ=1<<24, ACCESS_WRITE=1<<25,
     ACCESS_RW=3<<24, ACCESS_MASK=ACCESS_RW, ACCESS_FAST=1<<26 };
+
+CV__DEBUG_NS_BEGIN
 
 class CV_EXPORTS _OutputArray;
 
@@ -399,6 +405,8 @@ public:
 #endif
 
 };
+
+CV__DEBUG_NS_END
 
 typedef const _InputArray& InputArray;
 typedef InputArray InputArrayOfArrays;
@@ -984,7 +992,8 @@ public:
 #ifdef CV_CXX11
     /** @overload
     */
-    template<typename _Tp> explicit Mat(const std::initializer_list<_Tp> list);
+    template<typename _Tp, typename = typename std::enable_if<std::is_arithmetic<_Tp>::value>::type>
+    explicit Mat(const std::initializer_list<_Tp> list);
 #endif
 
 #ifdef CV_CXX_STD_ARRAY

@@ -76,6 +76,7 @@ HalideBackendNode::HalideBackendNode(const Ptr<HalideBackendNode>& base,
 HalideBackendWrapper::HalideBackendWrapper(int targetId, const cv::Mat& m)
     : BackendWrapper(DNN_BACKEND_HALIDE, targetId)
 {
+    managesDevMemory = true;
     buffer = wrapToHalideBuffer(m);
     if (targetId == DNN_TARGET_CPU)
     {
@@ -83,7 +84,9 @@ HalideBackendWrapper::HalideBackendWrapper(int targetId, const cv::Mat& m)
     }
     else if (targetId == DNN_TARGET_OPENCL)
     {
-        buffer.copy_to_device(halide_opencl_device_interface());
+        Halide::Target t = Halide::get_host_target();
+        t.set_feature(Halide::Target::OpenCL);
+        buffer.copy_to_device(get_default_device_interface_for_target(t));
     }
     else
         CV_Error(Error::StsNotImplemented, "Unknown target identifier");
@@ -93,6 +96,7 @@ HalideBackendWrapper::HalideBackendWrapper(const Ptr<BackendWrapper>& base,
                                            const MatShape& shape)
     : BackendWrapper(DNN_BACKEND_HALIDE, base->targetId)
 {
+    managesDevMemory = false;
     int w, h, c, n;
     getCanonicalSize(shape, &w, &h, &c, &n);
     Halide::Buffer<float> baseBuffer = halideBuffer(base);
@@ -108,6 +112,16 @@ HalideBackendWrapper::HalideBackendWrapper(const Ptr<BackendWrapper>& base,
     {
         buffer.set_host_dirty();  // Indicate that data is on CPU.
         CV_Assert(targetId == DNN_TARGET_CPU);
+    }
+}
+
+HalideBackendWrapper::~HalideBackendWrapper()
+{
+    if (buffer.has_device_allocation() && !managesDevMemory)
+    {
+        buffer.raw_buffer()->device = 0;
+        buffer.raw_buffer()->device_interface = 0;
+        buffer.set_device_dirty(false);
     }
 }
 

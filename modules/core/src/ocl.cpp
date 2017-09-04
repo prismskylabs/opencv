@@ -174,24 +174,6 @@ static uint64 crc64( const uchar* data, size_t size, uint64 crc0=0 )
     return ~crc;
 }
 
-struct HashKey
-{
-    typedef uint64 part;
-    HashKey(part _a, part _b) : a(_a), b(_b) {}
-    part a, b;
-};
-
-inline bool operator == (const HashKey& h1, const HashKey& h2)
-{
-    return h1.a == h2.a && h1.b == h2.b;
-}
-
-inline bool operator < (const HashKey& h1, const HashKey& h2)
-{
-    return h1.a < h2.a || (h1.a == h2.a && h1.b < h2.b);
-}
-
-
 bool haveOpenCL()
 {
 #ifdef HAVE_OPENCL
@@ -1351,7 +1333,7 @@ struct Context::Impl
                     const String& buildflags, String& errmsg)
     {
         size_t limit = getProgramCountLimit();
-        String key = Program::getPrefix(buildflags);
+        String key = cv::format("codehash=%08llx ", src.hash()) + Program::getPrefix(buildflags);
         {
             cv::AutoLock lock(program_cache_mutex);
             phash_t::iterator it = phash.find(key);
@@ -1398,6 +1380,23 @@ struct Context::Impl
         return prog;
     }
 
+    void unloadProg(Program& prog)
+    {
+        cv::AutoLock lock(program_cache_mutex);
+        for (CacheList::iterator i = cacheList.begin(); i != cacheList.end(); ++i)
+        {
+              phash_t::iterator it = phash.find(*i);
+              if (it != phash.end())
+              {
+                  if (it->second.ptr() == prog.ptr())
+                  {
+                      phash.erase(*i);
+                      cacheList.erase(i);
+                      return;
+                  }
+              }
+        }
+    }
 
     IMPLEMENT_REFCOUNTABLE();
 
@@ -1661,7 +1660,11 @@ Program Context::getProg(const ProgramSource& prog,
     return p ? p->getProg(prog, buildopts, errmsg) : Program();
 }
 
-
+void Context::unloadProg(Program& prog)
+{
+    if (p)
+        p->unloadProg(prog);
+}
 
 #ifdef HAVE_OPENCL_SVM
 bool Context::useSVM() const
@@ -2161,7 +2164,7 @@ int Kernel::set(int i, const Image2D& image2D)
 
 int Kernel::set(int i, const UMat& m)
 {
-    return set(i, KernelArg(KernelArg::READ_WRITE, (UMat*)&m, 0, 0));
+    return set(i, KernelArg(KernelArg::READ_WRITE, (UMat*)&m));
 }
 
 int Kernel::set(int i, const KernelArg& arg)
