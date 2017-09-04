@@ -2,21 +2,22 @@ include(CMakeParseArguments)
 
 # Debugging function
 function(ocv_cmake_dump_vars)
-  set(VARS "")
-  get_cmake_property(_variableNames VARIABLES)
+  get_cmake_property(__variableNames VARIABLES)
   cmake_parse_arguments(DUMP "" "TOFILE" "" ${ARGN})
   set(regex "${DUMP_UNPARSED_ARGUMENTS}")
   string(TOLOWER "${regex}" regex_lower)
-  foreach(_variableName ${_variableNames})
-    string(TOLOWER "${_variableName}" _variableName_lower)
-    if(_variableName MATCHES "${regex}" OR _variableName_lower MATCHES "${regex_lower}")
-      set(VARS "${VARS}${_variableName}=${${_variableName}}\n")
+  set(__VARS "")
+  foreach(__variableName ${__variableNames})
+    string(TOLOWER "${__variableName}" __variableName_lower)
+    if((__variableName MATCHES "${regex}" OR __variableName_lower MATCHES "${regex_lower}")
+        AND NOT __variableName_lower MATCHES "^__")
+      set(__VARS "${__VARS}${__variableName}=${${__variableName}}\n")
     endif()
   endforeach()
   if(DUMP_TOFILE)
-    file(WRITE ${CMAKE_BINARY_DIR}/${DUMP_TOFILE} "${VARS}")
+    file(WRITE ${CMAKE_BINARY_DIR}/${DUMP_TOFILE} "${__VARS}")
   else()
-    message(AUTHOR_WARNING "${VARS}")
+    message(AUTHOR_WARNING "${__VARS}")
   endif()
 endfunction()
 
@@ -531,6 +532,12 @@ macro(ocv_finalize_status)
     if(DEFINED OPENCV_MODULE_opencv_core_BINARY_DIR)
       execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different "${OPENCV_BUILD_INFO_FILE}" "${OPENCV_MODULE_opencv_core_BINARY_DIR}/version_string.inc" OUTPUT_QUIET)
     endif()
+  endif()
+
+  if(UNIX)
+    install(FILES "${OpenCV_SOURCE_DIR}/platforms/scripts/valgrind.supp"
+                  "${OpenCV_SOURCE_DIR}/platforms/scripts/valgrind_3rdparty.supp"
+            DESTINATION "${OPENCV_OTHER_INSTALL_PATH}" COMPONENT "dev")
   endif()
 endmacro()
 
@@ -1115,7 +1122,7 @@ macro(ocv_add_testdata basedir dest_subdir)
     endif()
     if(INSTALL_TESTS)
       install(DIRECTORY ${basedir}/
-              DESTINATION ${OPENCV_TEST_DATA_INSTALL_PATH}/contrib/text
+              DESTINATION ${OPENCV_TEST_DATA_INSTALL_PATH}/${dest_subdir}
               COMPONENT "tests"
               ${ARGN}
       )
