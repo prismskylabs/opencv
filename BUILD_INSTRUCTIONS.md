@@ -2,7 +2,7 @@
 
 ## Mac OS Build Instructions
 
-Install ffmpeg, you can do this by running `bew install ffmpeg`. Then run:
+Install ffmpeg, you can do this by running `brew install ffmpeg`. Then run:
 
 ```
 cd opencv
