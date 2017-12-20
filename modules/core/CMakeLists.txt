@@ -5,7 +5,7 @@ ocv_add_dispatched_file(stat SSE4_2 AVX2)
 
 ocv_add_module(core
                OPTIONAL opencv_cudev
-               WRAP java python)
+               WRAP java python js)
 
 set(extra_libs "")
 
@@ -62,6 +62,10 @@ ocv_target_link_libraries(${the_module} LINK_PRIVATE
     "${ITT_LIBRARIES}"
     "${OPENCV_HAL_LINKER_LIBS}"
 )
+
+if(HAVE_CUDA)
+  ocv_target_compile_definitions(${the_module} PUBLIC OPENCV_TRAITS_ENABLE_DEPRECATED)
+endif()
 
 ocv_add_accuracy_tests()
 ocv_add_perf_tests()

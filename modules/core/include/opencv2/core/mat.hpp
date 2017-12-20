@@ -357,6 +357,9 @@ public:
 
     void assign(const UMat& u) const;
     void assign(const Mat& m) const;
+
+    void assign(const std::vector<UMat>& v) const;
+    void assign(const std::vector<Mat>& v) const;
 };
 
 
@@ -582,7 +585,7 @@ protected:
 An example demonstrating the serial out capabilities of cv::Mat
 */
 
- /** @brief n-dimensional dense array class
+ /** @brief n-dimensional dense array class \anchor CVMat_Details
 
 The class Mat represents an n-dimensional dense numerical single-channel or multi-channel array. It
 can be used to store real or complex-valued vectors and matrices, grayscale or color images, voxel
@@ -1192,8 +1195,8 @@ public:
     /** @overload
     @param m Destination matrix. If it does not have a proper size or type before the operation, it is
     reallocated.
-    @param mask Operation mask. Its non-zero elements indicate which matrix elements need to be copied.
-    The mask has to be of type CV_8U and can have 1 or multiple channels.
+    @param mask Operation mask of the same size as \*this. Its non-zero elements indicate which matrix
+    elements need to be copied. The mask has to be of type CV_8U and can have 1 or multiple channels.
     */
     void copyTo( OutputArray m, InputArray mask ) const;
 
@@ -1229,7 +1232,8 @@ public:
 
     This is an advanced variant of the Mat::operator=(const Scalar& s) operator.
     @param value Assigned scalar converted to the actual array type.
-    @param mask Operation mask of the same size as \*this.
+    @param mask Operation mask of the same size as \*this. Its non-zero elements indicate which matrix
+    elements need to be copied. The mask has to be of type CV_8U and can have 1 or multiple channels
      */
     Mat& setTo(InputArray value, InputArray mask=noArray());
 
@@ -1532,6 +1536,11 @@ public:
     template<typename _Tp> void push_back(const Mat_<_Tp>& elem);
 
     /** @overload
+    @param elem Added element(s).
+    */
+    template<typename _Tp> void push_back(const std::vector<_Tp>& elem);
+
+    /** @overload
     @param m Added line(s).
     */
     void push_back(const Mat& m);
@@ -1661,7 +1670,7 @@ public:
                         inv_scale = 1.f/alpha_scale;
 
             CV_Assert( src1.type() == src2.type() &&
-                       src1.type() == CV_MAKETYPE(DataType<T>::depth, 4) &&
+                       src1.type() == CV_MAKETYPE(traits::Depth<T>::value, 4) &&
                        src1.size() == src2.size());
             Size size = src1.size();
             dst.create(size, src1.type());
@@ -1941,7 +1950,7 @@ public:
                         inv_scale = 1.f/alpha_scale;
 
             CV_Assert( src1.type() == src2.type() &&
-                       src1.type() == DataType<VT>::type &&
+                       src1.type() == traits::Type<VT>::value &&
                        src1.size() == src2.size());
             Size size = src1.size();
             dst.create(size, src1.type());
@@ -2412,7 +2421,7 @@ public:
     void copyTo( OutputArray m ) const;
     //! copies those matrix elements to "m" that are marked with non-zero mask elements.
     void copyTo( OutputArray m, InputArray mask ) const;
-    //! converts matrix to another datatype with optional scalng. See cvConvertScale.
+    //! converts matrix to another datatype with optional scaling. See cvConvertScale.
     void convertTo( OutputArray m, int rtype, double alpha=1, double beta=0 ) const;
 
     void assignTo( UMat& m, int type=-1 ) const;

@@ -143,6 +143,10 @@ protected:
 
     // general
     static const float basicSize_;
+
+private:
+    BRISK_Impl(const BRISK_Impl &); // copy disabled
+    BRISK_Impl& operator=(const BRISK_Impl &); // assign disabled
 };
 
 
@@ -2339,6 +2343,11 @@ Ptr<BRISK> BRISK::create(int thresh, int octaves, const std::vector<float> &radi
                          const std::vector<int>& indexChange)
 {
     return makePtr<BRISK_Impl>(thresh, octaves, radiusList, numberList, dMax, dMin, indexChange);
+}
+
+String BRISK::getDefaultName() const
+{
+    return (Feature2D::getDefaultName() + ".BRISK");
 }
 
 }
