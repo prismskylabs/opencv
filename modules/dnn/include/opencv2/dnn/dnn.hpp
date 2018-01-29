@@ -423,8 +423,8 @@ CV__DNN_EXPERIMENTAL_NS_BEGIN
          *  @param outputBlobs contains all output blobs for each layer specified in @p outBlobNames.
          *  @param outBlobNames names for layers which outputs are needed to get
          */
-        void forward(std::vector<std::vector<Mat> >& outputBlobs,
-                     const std::vector<String>& outBlobNames);
+        CV_WRAP_AS(forwardAndRetrieve) void forward(CV_OUT std::vector<std::vector<Mat> >& outputBlobs,
+                                                    const std::vector<String>& outBlobNames);
 
         /**
          * @brief Compile Halide layers.
@@ -695,6 +695,16 @@ CV__DNN_EXPERIMENTAL_NS_BEGIN
      */
     CV_EXPORTS_W Mat blobFromImage(InputArray image, double scalefactor=1.0, const Size& size = Size(),
                                    const Scalar& mean = Scalar(), bool swapRB=true, bool crop=true);
+
+    /** @brief Creates 4-dimensional blob from image.
+     *  @details This is an overloaded member function, provided for convenience.
+     *           It differs from the above function only in what argument(s) it accepts.
+     */
+    CV_EXPORTS void blobFromImage(InputArray image, OutputArray blob, double scalefactor=1.0,
+                                  const Size& size = Size(), const Scalar& mean = Scalar(),
+                                  bool swapRB=true, bool crop=true);
+
+
     /** @brief Creates 4-dimensional blob from series of images. Optionally resizes and
      *  crops @p images from center, subtract @p mean values, scales values by @p scalefactor,
      *  swap Blue and Red channels.
@@ -711,8 +721,17 @@ CV__DNN_EXPERIMENTAL_NS_BEGIN
      *  If @p crop is false, direct resize without cropping and preserving aspect ratio is performed.
      *  @returns 4-dimansional Mat with NCHW dimensions order.
      */
-    CV_EXPORTS_W Mat blobFromImages(const std::vector<Mat>& images, double scalefactor=1.0,
+    CV_EXPORTS_W Mat blobFromImages(InputArrayOfArrays images, double scalefactor=1.0,
                                     Size size = Size(), const Scalar& mean = Scalar(), bool swapRB=true, bool crop=true);
+
+    /** @brief Creates 4-dimensional blob from series of images.
+     *  @details This is an overloaded member function, provided for convenience.
+     *           It differs from the above function only in what argument(s) it accepts.
+     */
+    CV_EXPORTS void blobFromImages(InputArrayOfArrays images, OutputArray blob,
+                                   double scalefactor=1.0, Size size = Size(),
+                                   const Scalar& mean = Scalar(), bool swapRB=true, bool crop=true);
+
 
     /** @brief Convert all weights of Caffe network to half precision floating point.
      * @param src Path to origin model from Caffe framework contains single

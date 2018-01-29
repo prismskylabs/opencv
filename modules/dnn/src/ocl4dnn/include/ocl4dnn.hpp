@@ -77,7 +77,8 @@ typedef enum {
     OCL4DNN_CONV_FUSED_ACTIV_NONE                 = 0,
     OCL4DNN_CONV_FUSED_ACTIV_RELU                 = 1,
     OCL4DNN_CONV_FUSED_ACTIV_PRELU                = 2,
-    OCL4DNN_CONV_FUSED_ACTIV_POWER                = 3
+    OCL4DNN_CONV_FUSED_ACTIV_POWER                = 3,
+    OCL4DNN_CONV_FUSED_ACTIV_TANH                 = 4
 } ocl4dnnFusedActiv_t;
 
 template<typename Dtype>
@@ -94,6 +95,7 @@ class OCL4DNNConvSpatial
         void setActivReLU(bool fuse_activ, float slope);
         void setActivPReLU(bool fuse_activ, std::vector<float> &slope);
         void setActivPower(bool fuse_activ, float power);
+        void setActivTanh(bool fuse_activ);
         void setBias(bool bias_term);
 
     private:
@@ -258,6 +260,12 @@ class OCL4DNNConvSpatial
                                  int lx, int ly, int lz,
                                  bool swizzle, bool nullLocal);
         void generateTunerItems(std::vector< cv::Ptr<tunerParam> > &tunerItems);
+        void generate_dwconv_tuneritems(std::vector< cv::Ptr<tunerParam> > &tunerItems,
+                                        int blockM, int blockK, int blockN);
+        void generate_gemmlike_tuneritems(std::vector< cv::Ptr<tunerParam> > &tunerItems,
+                                          int blockM, int blockK, int blockN);
+        void generate_idlf_tuneritems(std::vector< cv::Ptr<tunerParam> > &tunerItems,
+                                      int blockM, int blockK, int simd_size);
         void setFusionDefine(ocl4dnnFusedActiv_t fused_activ, bool fused_eltwise);
         void setFusionArg(ocl4dnnFusedActiv_t fused_activ, bool fused_eltwise, ocl::Kernel &kernel, cl_uint &argIdx);
 

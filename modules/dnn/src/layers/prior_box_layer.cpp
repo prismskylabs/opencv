@@ -308,7 +308,7 @@ public:
             aspectRatios.copyTo(umat_aspectRatios);
             variance.copyTo(umat_variance);
 
-            int real_numPriors = _numPriors / pow(2, _offsetsX.size() - 1);
+            int real_numPriors = _numPriors >> (_offsetsX.size() - 1);
             umat_scales = UMat(1, &real_numPriors, CV_32F, 1.0f);
         }
 
@@ -383,7 +383,7 @@ public:
 
         CV_Assert(inputs.size() == 2);
 
-        size_t real_numPriors = _numPriors / pow(2, _offsetsX.size() - 1);
+        size_t real_numPriors = _numPriors >> (_offsetsX.size() - 1);
         if (_scales.empty())
             _scales.resize(real_numPriors, 1.0f);
         else
@@ -416,6 +416,11 @@ public:
                 {
                     _boxWidth = _widths[0] * _scales[0];
                     _boxHeight = _heights[0] * _scales[0];
+                    if (_bboxesNormalized)
+                    {
+                        _boxWidth *= _imageWidth;
+                        _boxHeight *= _imageHeight;
+                    }
                 }
                 else
                     _boxWidth = _boxHeight = _minSize * _scales[0];
@@ -463,6 +468,11 @@ public:
                 {
                     _boxWidth = _widths[i] * _scales[i];
                     _boxHeight = _heights[i] * _scales[i];
+                    if (_bboxesNormalized)
+                    {
+                        _boxWidth *= _imageWidth;
+                        _boxHeight *= _imageHeight;
+                    }
                     for (int j = 0; j < _offsetsX.size(); ++j)
                     {
                         float center_x = (w + _offsetsX[j]) * stepX;
