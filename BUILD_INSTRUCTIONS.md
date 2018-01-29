@@ -5,7 +5,6 @@
 Install ffmpeg, you can do this by running `brew install ffmpeg`. Then run:
 
 ```
-export MACOSX_DEPLOYMENT_TARGET=10.12
 cd opencv
 mkdir build
 cd build
