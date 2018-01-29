@@ -5,6 +5,7 @@
 Install ffmpeg, you can do this by running `brew install ffmpeg`. Then run:
 
 ```
+export MACOSX_DEPLOYMENT_TARGET=10.12
 cd opencv
 mkdir build
 cd build
@@ -13,6 +14,12 @@ cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=~/Desktop/opencv3 -D I
     -D BUILD_SHARED_LIBS=OFF -D WITH_IPP=OFF -D WITH_OPENCL=OFF -D WITH_GSTREAMER=OFF -D WITH_AVFOUNDATION=OFF -D WITH_FFMPEG=ON -D WITH_WEBP=OFF ..
 make -j8
 make install
+```
+
+You will get opencv installed in `~/Desktop/opencv3`, navigate to that folder and create artifact by running:
+
+```
+tar -czvf opencv_3.4.0_macos.Release.tar.gz include/ lib/ share/
 ```
 
 ## Ubuntu Build Instructions
