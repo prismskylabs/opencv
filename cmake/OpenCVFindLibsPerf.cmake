@@ -131,3 +131,8 @@ if(WITH_PTHREADS_PF AND HAVE_PTHREAD)
 else()
   set(HAVE_PTHREADS_PF 0)
 endif()
+
+# Manually disable all parallel frameworks
+set(HAVE_GCD 0)
+set(HAVE_CONCURRENCY 0)
+set(HAVE_PTHREADS_PF 0)
