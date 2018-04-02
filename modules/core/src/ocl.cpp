@@ -3793,16 +3793,10 @@ struct Program::Impl
             }
         }
         if (!handle)
-            return false;
-        cl_build_status build_status = CL_BUILD_NONE;
-        size_t retsz = 0;
-        CV_OCL_DBG_CHECK(result = clGetProgramBuildInfo(handle, devices[0], CL_PROGRAM_BUILD_STATUS,
-                sizeof(build_status), &build_status, &retsz));
-        if (result == CL_SUCCESS && build_status == CL_BUILD_SUCCESS)
         {
-            CV_LOG_VERBOSE(NULL, 0, "clGetProgramBuildInfo() pre-check returns CL_BUILD_SUCCESS. Skip clBuildProgram() call");
+            return false;
         }
-        else
+        // call clBuildProgram()
         {
             result = clBuildProgram(handle, (cl_uint)ndevices, (cl_device_id*)devices_, buildflags.c_str(), 0, 0);
             CV_OCL_DBG_CHECK_RESULT(result, cv::format("clBuildProgram(binary: %s/%s)", sourceModule_.c_str(), sourceName_.c_str()).c_str());
@@ -3817,8 +3811,10 @@ struct Program::Impl
                 return false;
             }
         }
-        if (build_status != CL_BUILD_SUCCESS)
+        // check build status
         {
+            cl_build_status build_status = CL_BUILD_NONE;
+            size_t retsz = 0;
             CV_OCL_DBG_CHECK(result = clGetProgramBuildInfo(handle, devices[0], CL_PROGRAM_BUILD_STATUS,
                     sizeof(build_status), &build_status, &retsz));
             if (result == CL_SUCCESS)
@@ -3847,7 +3843,7 @@ struct Program::Impl
         if (handle && CV_OPENCL_VALIDATE_BINARY_PROGRAMS_VALUE)
         {
             CV_LOG_INFO(NULL, "OpenCL: query kernel names (binary)...");
-            retsz = 0;
+            size_t retsz = 0;
             char kernels_buffer[4096] = {0};
             result = clGetProgramInfo(handle, CL_PROGRAM_KERNEL_NAMES, sizeof(kernels_buffer), &kernels_buffer[0], &retsz);
             if (retsz < sizeof(kernels_buffer))
@@ -4182,7 +4178,7 @@ public:
         CV_Assert(reservedEntries_.empty());
     }
 public:
-    virtual T allocate(size_t size)
+    virtual T allocate(size_t size) CV_OVERRIDE
     {
         AutoLock locker(mutex_);
         BufferEntry entry;
@@ -4197,7 +4193,7 @@ public:
         }
         return entry.clBuffer_;
     }
-    virtual void release(T buffer)
+    virtual void release(T buffer) CV_OVERRIDE
     {
         AutoLock locker(mutex_);
         BufferEntry entry;
@@ -4214,9 +4210,9 @@ public:
         }
     }
 
-    virtual size_t getReservedSize() const { return currentReservedSize; }
-    virtual size_t getMaxReservedSize() const { return maxReservedSize; }
-    virtual void setMaxReservedSize(size_t size)
+    virtual size_t getReservedSize() const CV_OVERRIDE { return currentReservedSize; }
+    virtual size_t getMaxReservedSize() const CV_OVERRIDE { return maxReservedSize; }
+    virtual void setMaxReservedSize(size_t size) CV_OVERRIDE
     {
         AutoLock locker(mutex_);
         size_t oldMaxReservedSize = maxReservedSize;
@@ -4240,7 +4236,7 @@ public:
             _checkSizeOfReservedEntries();
         }
     }
-    virtual void freeAllReservedBuffers()
+    virtual void freeAllReservedBuffers() CV_OVERRIDE
     {
         AutoLock locker(mutex_);
         typename std::list<BufferEntry>::const_iterator i = reservedEntries_.begin();
@@ -4261,7 +4257,7 @@ struct CLBufferEntry
     CLBufferEntry() : clBuffer_((cl_mem)NULL), capacity_(0) { }
 };
 
-class OpenCLBufferPoolImpl : public OpenCLBufferPoolBaseImpl<OpenCLBufferPoolImpl, CLBufferEntry, cl_mem>
+class OpenCLBufferPoolImpl CV_FINAL : public OpenCLBufferPoolBaseImpl<OpenCLBufferPoolImpl, CLBufferEntry, cl_mem>
 {
 public:
     typedef struct CLBufferEntry BufferEntry;
@@ -4307,7 +4303,7 @@ struct CLSVMBufferEntry
     size_t capacity_;
     CLSVMBufferEntry() : clBuffer_(NULL), capacity_(0) { }
 };
-class OpenCLSVMBufferPoolImpl : public OpenCLBufferPoolBaseImpl<OpenCLSVMBufferPoolImpl, CLSVMBufferEntry, void*>
+class OpenCLSVMBufferPoolImpl CV_FINAL : public OpenCLBufferPoolBaseImpl<OpenCLSVMBufferPoolImpl, CLSVMBufferEntry, void*>
 {
 public:
     typedef struct CLSVMBufferEntry BufferEntry;
@@ -4469,7 +4465,7 @@ private:
 #define CV_OPENCL_DATA_PTR_ALIGNMENT 16
 #endif
 
-class OpenCLAllocator : public MatAllocator
+class OpenCLAllocator CV_FINAL : public MatAllocator
 {
     mutable OpenCLBufferPoolImpl bufferPool;
     mutable OpenCLBufferPoolImpl bufferPoolHostPtr;
@@ -4529,7 +4525,7 @@ public:
     }
 
     UMatData* allocate(int dims, const int* sizes, int type,
-                       void* data, size_t* step, int flags, UMatUsageFlags usageFlags) const
+                       void* data, size_t* step, int flags, UMatUsageFlags usageFlags) const CV_OVERRIDE
     {
         if(!useOpenCL())
             return defaultAllocate(dims, sizes, type, data, step, flags, usageFlags);
@@ -4593,7 +4589,7 @@ public:
         return u;
     }
 
-    bool allocate(UMatData* u, int accessFlags, UMatUsageFlags usageFlags) const
+    bool allocate(UMatData* u, int accessFlags, UMatUsageFlags usageFlags) const CV_OVERRIDE
     {
         if(!u)
             return false;
@@ -4725,7 +4721,7 @@ public:
         }
     }*/
 
-    void deallocate(UMatData* u) const
+    void deallocate(UMatData* u) const CV_OVERRIDE
     {
         if(!u)
             return;
@@ -4909,7 +4905,7 @@ public:
     }
 
     // synchronized call (external UMatDataAutoLock, see UMat::getMat)
-    void map(UMatData* u, int accessFlags) const
+    void map(UMatData* u, int accessFlags) const CV_OVERRIDE
     {
         CV_Assert(u && u->handle);
 
@@ -4992,7 +4988,7 @@ public:
         }
     }
 
-    void unmap(UMatData* u) const
+    void unmap(UMatData* u) const CV_OVERRIDE
     {
         if(!u)
             return;
@@ -5137,7 +5133,7 @@ public:
 
     void download(UMatData* u, void* dstptr, int dims, const size_t sz[],
                   const size_t srcofs[], const size_t srcstep[],
-                  const size_t dststep[]) const
+                  const size_t dststep[]) const CV_OVERRIDE
     {
         if(!u)
             return;
@@ -5260,7 +5256,7 @@ public:
 
     void upload(UMatData* u, const void* srcptr, int dims, const size_t sz[],
                 const size_t dstofs[], const size_t dststep[],
-                const size_t srcstep[]) const
+                const size_t srcstep[]) const CV_OVERRIDE
     {
         if(!u)
             return;
@@ -5412,7 +5408,7 @@ public:
 
     void copy(UMatData* src, UMatData* dst, int dims, const size_t sz[],
               const size_t srcofs[], const size_t srcstep[],
-              const size_t dstofs[], const size_t dststep[], bool _sync) const
+              const size_t dstofs[], const size_t dststep[], bool _sync) const CV_OVERRIDE
     {
         if(!src || !dst)
             return;
@@ -5600,7 +5596,7 @@ public:
         }
     }
 
-    BufferPoolController* getBufferPoolController(const char* id) const {
+    BufferPoolController* getBufferPoolController(const char* id) const CV_OVERRIDE {
 #ifdef HAVE_OPENCL_SVM
         if ((svm::checkForceSVMUmatUsage() && (id == NULL || strcmp(id, "OCL") == 0)) || (id != NULL && strcmp(id, "SVM") == 0))
         {
@@ -6019,98 +6015,85 @@ const char* convertTypeStr(int sdepth, int ddepth, int cn, char* buf)
 
 const char* getOpenCLErrorString(int errorCode)
 {
+#define CV_OCL_CODE(id) case id: return #id
+#define CV_OCL_CODE_(id, name) case id: return #name
     switch (errorCode)
     {
-    case   0: return "CL_SUCCESS";
-    case  -1: return "CL_DEVICE_NOT_FOUND";
-    case  -2: return "CL_DEVICE_NOT_AVAILABLE";
-    case  -3: return "CL_COMPILER_NOT_AVAILABLE";
-    case  -4: return "CL_MEM_OBJECT_ALLOCATION_FAILURE";
-    case  -5: return "CL_OUT_OF_RESOURCES";
-    case  -6: return "CL_OUT_OF_HOST_MEMORY";
-    case  -7: return "CL_PROFILING_INFO_NOT_AVAILABLE";
-    case  -8: return "CL_MEM_COPY_OVERLAP";
-    case  -9: return "CL_IMAGE_FORMAT_MISMATCH";
-    case -10: return "CL_IMAGE_FORMAT_NOT_SUPPORTED";
-    case -11: return "CL_BUILD_PROGRAM_FAILURE";
-    case -12: return "CL_MAP_FAILURE";
-    case -13: return "CL_MISALIGNED_SUB_BUFFER_OFFSET";
-    case -14: return "CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST";
-    case -15: return "CL_COMPILE_PROGRAM_FAILURE";
-    case -16: return "CL_LINKER_NOT_AVAILABLE";
-    case -17: return "CL_LINK_PROGRAM_FAILURE";
-    case -18: return "CL_DEVICE_PARTITION_FAILED";
-    case -19: return "CL_KERNEL_ARG_INFO_NOT_AVAILABLE";
-    case -30: return "CL_INVALID_VALUE";
-    case -31: return "CL_INVALID_DEVICE_TYPE";
-    case -32: return "CL_INVALID_PLATFORM";
-    case -33: return "CL_INVALID_DEVICE";
-    case -34: return "CL_INVALID_CONTEXT";
-    case -35: return "CL_INVALID_QUEUE_PROPERTIES";
-    case -36: return "CL_INVALID_COMMAND_QUEUE";
-    case -37: return "CL_INVALID_HOST_PTR";
-    case -38: return "CL_INVALID_MEM_OBJECT";
-    case -39: return "CL_INVALID_IMAGE_FORMAT_DESCRIPTOR";
-    case -40: return "CL_INVALID_IMAGE_SIZE";
-    case -41: return "CL_INVALID_SAMPLER";
-    case -42: return "CL_INVALID_BINARY";
-    case -43: return "CL_INVALID_BUILD_OPTIONS";
-    case -44: return "CL_INVALID_PROGRAM";
-    case -45: return "CL_INVALID_PROGRAM_EXECUTABLE";
-    case -46: return "CL_INVALID_KERNEL_NAME";
-    case -47: return "CL_INVALID_KERNEL_DEFINITION";
-    case -48: return "CL_INVALID_KERNEL";
-    case -49: return "CL_INVALID_ARG_INDEX";
-    case -50: return "CL_INVALID_ARG_VALUE";
-    case -51: return "CL_INVALID_ARG_SIZE";
-    case -52: return "CL_INVALID_KERNEL_ARGS";
-    case -53: return "CL_INVALID_WORK_DIMENSION";
-    case -54: return "CL_INVALID_WORK_GROUP_SIZE";
-    case -55: return "CL_INVALID_WORK_ITEM_SIZE";
-    case -56: return "CL_INVALID_GLOBAL_OFFSET";
-    case -57: return "CL_INVALID_EVENT_WAIT_LIST";
-    case -58: return "CL_INVALID_EVENT";
-    case -59: return "CL_INVALID_OPERATION";
-    case -60: return "CL_INVALID_GL_OBJECT";
-    case -61: return "CL_INVALID_BUFFER_SIZE";
-    case -62: return "CL_INVALID_MIP_LEVEL";
-    case -63: return "CL_INVALID_GLOBAL_WORK_SIZE";
-    case -64: return "CL_INVALID_PROPERTY";
-    case -65: return "CL_INVALID_IMAGE_DESCRIPTOR";
-    case -66: return "CL_INVALID_COMPILER_OPTIONS";
-    case -67: return "CL_INVALID_LINKER_OPTIONS";
-    case -68: return "CL_INVALID_DEVICE_PARTITION_COUNT";
-    case -69: return "CL_INVALID_PIPE_SIZE";
-    case -70: return "CL_INVALID_DEVICE_QUEUE";
-    case -1000: return "CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR";
-    case -1001: return "CL_PLATFORM_NOT_FOUND_KHR";
-    case -1002: return "CL_INVALID_D3D10_DEVICE_KHR";
-    case -1003: return "CL_INVALID_D3D10_RESOURCE_KHR";
-    case -1004: return "CL_D3D10_RESOURCE_ALREADY_ACQUIRED_KHR";
-    case -1005: return "CL_D3D10_RESOURCE_NOT_ACQUIRED_KHR";
-    case -1024: return "clBLAS: Functionality is not implemented";
-    case -1023: return "clBLAS: Library is not initialized yet";
-    case -1022: return "clBLAS: Matrix A is not a valid memory object";
-    case -1021: return "clBLAS: Matrix B is not a valid memory object";
-    case -1020: return "clBLAS: Matrix C is not a valid memory object";
-    case -1019: return "clBLAS: Vector X is not a valid memory object";
-    case -1018: return "clBLAS: Vector Y is not a valid memory object";
-    case -1017: return "clBLAS: An input dimension (M:N:K) is invalid";
-    case -1016: return "clBLAS: Leading dimension A must not be less than the "
-                       "size of the first dimension";
-    case -1015: return "clBLAS: Leading dimension B must not be less than the "
-                       "size of the second dimension";
-    case -1014: return "clBLAS: Leading dimension C must not be less than the "
-                       "size of the third dimension";
-    case -1013: return "clBLAS: The increment for a vector X must not be 0";
-    case -1012: return "clBLAS: The increment for a vector Y must not be 0";
-    case -1011: return "clBLAS: The memory object for Matrix A is too small";
-    case -1010: return "clBLAS: The memory object for Matrix B is too small";
-    case -1009: return "clBLAS: The memory object for Matrix C is too small";
-    case -1008: return "clBLAS: The memory object for Vector X is too small";
-    case -1007: return "clBLAS: The memory object for Vector Y is too small";
+    CV_OCL_CODE(CL_SUCCESS);
+    CV_OCL_CODE(CL_DEVICE_NOT_FOUND);
+    CV_OCL_CODE(CL_DEVICE_NOT_AVAILABLE);
+    CV_OCL_CODE(CL_COMPILER_NOT_AVAILABLE);
+    CV_OCL_CODE(CL_MEM_OBJECT_ALLOCATION_FAILURE);
+    CV_OCL_CODE(CL_OUT_OF_RESOURCES);
+    CV_OCL_CODE(CL_OUT_OF_HOST_MEMORY);
+    CV_OCL_CODE(CL_PROFILING_INFO_NOT_AVAILABLE);
+    CV_OCL_CODE(CL_MEM_COPY_OVERLAP);
+    CV_OCL_CODE(CL_IMAGE_FORMAT_MISMATCH);
+    CV_OCL_CODE(CL_IMAGE_FORMAT_NOT_SUPPORTED);
+    CV_OCL_CODE(CL_BUILD_PROGRAM_FAILURE);
+    CV_OCL_CODE(CL_MAP_FAILURE);
+    CV_OCL_CODE(CL_MISALIGNED_SUB_BUFFER_OFFSET);
+    CV_OCL_CODE(CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST);
+    CV_OCL_CODE(CL_COMPILE_PROGRAM_FAILURE);
+    CV_OCL_CODE(CL_LINKER_NOT_AVAILABLE);
+    CV_OCL_CODE(CL_LINK_PROGRAM_FAILURE);
+    CV_OCL_CODE(CL_DEVICE_PARTITION_FAILED);
+    CV_OCL_CODE(CL_KERNEL_ARG_INFO_NOT_AVAILABLE);
+    CV_OCL_CODE(CL_INVALID_VALUE);
+    CV_OCL_CODE(CL_INVALID_DEVICE_TYPE);
+    CV_OCL_CODE(CL_INVALID_PLATFORM);
+    CV_OCL_CODE(CL_INVALID_DEVICE);
+    CV_OCL_CODE(CL_INVALID_CONTEXT);
+    CV_OCL_CODE(CL_INVALID_QUEUE_PROPERTIES);
+    CV_OCL_CODE(CL_INVALID_COMMAND_QUEUE);
+    CV_OCL_CODE(CL_INVALID_HOST_PTR);
+    CV_OCL_CODE(CL_INVALID_MEM_OBJECT);
+    CV_OCL_CODE(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR);
+    CV_OCL_CODE(CL_INVALID_IMAGE_SIZE);
+    CV_OCL_CODE(CL_INVALID_SAMPLER);
+    CV_OCL_CODE(CL_INVALID_BINARY);
+    CV_OCL_CODE(CL_INVALID_BUILD_OPTIONS);
+    CV_OCL_CODE(CL_INVALID_PROGRAM);
+    CV_OCL_CODE(CL_INVALID_PROGRAM_EXECUTABLE);
+    CV_OCL_CODE(CL_INVALID_KERNEL_NAME);
+    CV_OCL_CODE(CL_INVALID_KERNEL_DEFINITION);
+    CV_OCL_CODE(CL_INVALID_KERNEL);
+    CV_OCL_CODE(CL_INVALID_ARG_INDEX);
+    CV_OCL_CODE(CL_INVALID_ARG_VALUE);
+    CV_OCL_CODE(CL_INVALID_ARG_SIZE);
+    CV_OCL_CODE(CL_INVALID_KERNEL_ARGS);
+    CV_OCL_CODE(CL_INVALID_WORK_DIMENSION);
+    CV_OCL_CODE(CL_INVALID_WORK_GROUP_SIZE);
+    CV_OCL_CODE(CL_INVALID_WORK_ITEM_SIZE);
+    CV_OCL_CODE(CL_INVALID_GLOBAL_OFFSET);
+    CV_OCL_CODE(CL_INVALID_EVENT_WAIT_LIST);
+    CV_OCL_CODE(CL_INVALID_EVENT);
+    CV_OCL_CODE(CL_INVALID_OPERATION);
+    CV_OCL_CODE(CL_INVALID_GL_OBJECT);
+    CV_OCL_CODE(CL_INVALID_BUFFER_SIZE);
+    CV_OCL_CODE(CL_INVALID_MIP_LEVEL);
+    CV_OCL_CODE(CL_INVALID_GLOBAL_WORK_SIZE);
+    // OpenCL 1.1
+    CV_OCL_CODE(CL_INVALID_PROPERTY);
+    // OpenCL 1.2
+    CV_OCL_CODE(CL_INVALID_IMAGE_DESCRIPTOR);
+    CV_OCL_CODE(CL_INVALID_COMPILER_OPTIONS);
+    CV_OCL_CODE(CL_INVALID_LINKER_OPTIONS);
+    CV_OCL_CODE(CL_INVALID_DEVICE_PARTITION_COUNT);
+    // OpenCL 2.0
+    CV_OCL_CODE_(-69, CL_INVALID_PIPE_SIZE);
+    CV_OCL_CODE_(-70, CL_INVALID_DEVICE_QUEUE);
+    // Extensions
+    CV_OCL_CODE_(-1000, CL_INVALID_GL_SHAREGROUP_REFERENCE_KHR);
+    CV_OCL_CODE_(-1001, CL_PLATFORM_NOT_FOUND_KHR);
+    CV_OCL_CODE_(-1002, CL_INVALID_D3D10_DEVICE_KHR);
+    CV_OCL_CODE_(-1003, CL_INVALID_D3D10_RESOURCE_KHR);
+    CV_OCL_CODE_(-1004, CL_D3D10_RESOURCE_ALREADY_ACQUIRED_KHR);
+    CV_OCL_CODE_(-1005, CL_D3D10_RESOURCE_NOT_ACQUIRED_KHR);
     default: return "Unknown OpenCL error";
     }
+#undef CV_OCL_CODE
+#undef CV_OCL_CODE_
 }
 
 template <typename T>

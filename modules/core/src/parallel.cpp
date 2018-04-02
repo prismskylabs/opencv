@@ -42,6 +42,7 @@
 
 #include "precomp.hpp"
 
+#include <opencv2/core/utils/configuration.private.hpp>
 #include <opencv2/core/utils/trace.private.hpp>
 
 #if defined _WIN32 || defined WINCE
@@ -52,7 +53,8 @@
     #undef abs
 #endif
 
-#if defined __linux__ || defined __APPLE__ || defined __GLIBC__
+#if defined __linux__ || defined __APPLE__ || defined __GLIBC__ \
+    || defined __HAIKU__
     #include <unistd.h>
     #include <stdio.h>
     #include <sys/types.h>
@@ -125,18 +127,14 @@
 #  define CV_PARALLEL_FRAMEWORK "pthreads"
 #endif
 
+#include "parallel_impl.hpp"
+
 using namespace cv;
 
 namespace cv
 {
     ParallelLoopBody::~ParallelLoopBody() {}
-#ifdef HAVE_PTHREADS_PF
-    void parallel_for_pthreads(const cv::Range& range, const cv::ParallelLoopBody& body, double nstripes);
-    size_t parallel_pthreads_get_threads_num();
-    void parallel_pthreads_set_threads_num(int num);
-#endif
 }
-
 
 namespace
 {
@@ -240,7 +238,7 @@ namespace
         ~ParallelLoopBodyWrapper()
         {
         }
-        void operator()(const cv::Range& sr) const
+        void operator()(const cv::Range& sr) const CV_OVERRIDE
         {
 #ifdef OPENCV_TRACE
             // TODO CV_TRACE_NS::details::setCurrentRegion(rootRegion);
@@ -558,10 +556,35 @@ int cv::getNumThreads(void)
 #endif
 }
 
-void cv::setNumThreads( int threads )
+namespace cv {
+unsigned defaultNumberOfThreads()
 {
-    (void)threads;
+#ifdef __ANDROID__
+    // many modern phones/tables have 4-core CPUs. Let's use no more
+    // than 2 threads by default not to overheat the devices
+    const unsigned int default_number_of_threads = 2;
+#else
+    const unsigned int default_number_of_threads = (unsigned int)std::max(1, cv::getNumberOfCPUs());
+#endif
+
+    unsigned result = default_number_of_threads;
+
+    static int config_num_threads = (int)utils::getConfigurationParameterSizeT("OPENCV_FOR_THREADS_NUM", 0);
+
+    if (config_num_threads)
+    {
+        result = (unsigned)std::max(1, config_num_threads);
+        //do we need upper limit of threads number?
+    }
+    return result;
+}
+}
+
+void cv::setNumThreads( int threads_ )
+{
+    (void)threads_;
 #ifdef CV_PARALLEL_FRAMEWORK
+    int threads = (threads_ < 0) ? defaultNumberOfThreads() : (unsigned)threads_;
     numThreads = threads;
 #endif
 
@@ -699,7 +722,7 @@ int cv::getNumberOfCPUs(void)
 #elif defined __ANDROID__
     static int ncpus = getNumberOfCPUsImpl();
     return ncpus;
-#elif defined __linux__ || defined __GLIBC__
+#elif defined __linux__ || defined __GLIBC__ || defined __HAIKU__
     return (int)sysconf( _SC_NPROCESSORS_ONLN );
 #elif defined __APPLE__
     int numCPU=0;

@@ -445,12 +445,12 @@ static inline int hal_FAST(cv::Mat& src, std::vector<KeyPoint>& keypoints, int t
 
     cv::KeyPoint kpt(0, 0, 7.f, -1, 0);
 
-    uint32_t uthreshold = (uint32_t) threshold;
+    unsigned uthreshold = (unsigned) threshold;
 
     int ofs = 3;
 
     int stride = (int)suppressedScores.step;
-    const uint8_t* pscore = suppressedScores.data;
+    const unsigned char* pscore = suppressedScores.data;
 
     keypoints.clear();
 
@@ -459,11 +459,11 @@ static inline int hal_FAST(cv::Mat& src, std::vector<KeyPoint>& keypoints, int t
         kpt.pt.y = (float)(y);
         for (int x = ofs; x + ofs < suppressedScores.cols; ++x)
         {
-            uint32_t score = pscore[y * stride + x];
+            unsigned score = pscore[y * stride + x];
             if (score > uthreshold)
             {
                 kpt.pt.x = (float)(x);
-                kpt.response = (nonmax_suppression != 0) ? (float)((int32_t)score - 1) : 0.f;
+                kpt.response = (nonmax_suppression != 0) ? (float)((int)score - 1) : 0.f;
                 keypoints.push_back(kpt);
             }
         }
@@ -515,14 +515,14 @@ void FAST(InputArray _img, std::vector<KeyPoint>& keypoints, int threshold, bool
 }
 
 
-class FastFeatureDetector_Impl : public FastFeatureDetector
+class FastFeatureDetector_Impl CV_FINAL : public FastFeatureDetector
 {
 public:
     FastFeatureDetector_Impl( int _threshold, bool _nonmaxSuppression, int _type )
     : threshold(_threshold), nonmaxSuppression(_nonmaxSuppression), type((short)_type)
     {}
 
-    void detect( InputArray _image, std::vector<KeyPoint>& keypoints, InputArray _mask )
+    void detect( InputArray _image, std::vector<KeyPoint>& keypoints, InputArray _mask ) CV_OVERRIDE
     {
         CV_INSTRUMENT_REGION()
 
@@ -563,14 +563,14 @@ public:
         return 0;
     }
 
-    void setThreshold(int threshold_) { threshold = threshold_; }
-    int getThreshold() const { return threshold; }
+    void setThreshold(int threshold_) CV_OVERRIDE { threshold = threshold_; }
+    int getThreshold() const CV_OVERRIDE { return threshold; }
 
-    void setNonmaxSuppression(bool f) { nonmaxSuppression = f; }
-    bool getNonmaxSuppression() const { return nonmaxSuppression; }
+    void setNonmaxSuppression(bool f) CV_OVERRIDE { nonmaxSuppression = f; }
+    bool getNonmaxSuppression() const CV_OVERRIDE { return nonmaxSuppression; }
 
-    void setType(int type_) { type = type_; }
-    int getType() const { return type; }
+    void setType(int type_) CV_OVERRIDE { type = type_; }
+    int getType() const CV_OVERRIDE { return type; }
 
     int threshold;
     bool nonmaxSuppression;

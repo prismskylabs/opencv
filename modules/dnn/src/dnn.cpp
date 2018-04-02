@@ -41,6 +41,7 @@
 
 #include "precomp.hpp"
 #include "op_halide.hpp"
+#include "op_inf_engine.hpp"
 #include "halide_scheduler.hpp"
 #include <set>
 #include <algorithm>
@@ -52,12 +53,13 @@
 #include <opencv2/imgproc.hpp>
 
 #include <opencv2/core/utils/configuration.private.hpp>
+#include <opencv2/core/utils/logger.hpp>
 
 namespace cv {
 namespace dnn {
 CV__DNN_EXPERIMENTAL_NS_BEGIN
 
-// this option is usefull to run valgrind memory errors detection
+// this option is useful to run valgrind memory errors detection
 static bool DNN_DISABLE_MEMORY_OPTIMIZATIONS = utils::getConfigurationParameterBool("OPENCV_DNN_DISABLE_MEMORY_OPTIMIZATIONS", false);
 
 using std::vector;
@@ -191,6 +193,31 @@ void blobFromImages(InputArrayOfArrays images_, OutputArray blob_, double scalef
     }
 }
 
+void imagesFromBlob(const cv::Mat& blob_, OutputArrayOfArrays images_)
+{
+    CV_TRACE_FUNCTION();
+
+    //A blob is a 4 dimensional matrix in floating point precision
+    //blob_[0] = batchSize = nbOfImages
+    //blob_[1] = nbOfChannels
+    //blob_[2] = height
+    //blob_[3] = width
+    CV_Assert(blob_.depth() == CV_32F);
+    CV_Assert(blob_.dims == 4);
+
+    images_.create(cv::Size(1, blob_.size[0]), blob_.depth());
+
+    std::vector<Mat> vectorOfChannels(blob_.size[1]);
+    for (int n = 0; n <  blob_.size[0]; ++n)
+    {
+        for (int c = 0; c < blob_.size[1]; ++c)
+        {
+            vectorOfChannels[c] = getPlane(blob_, n, c);
+        }
+        cv::merge(vectorOfChannels, images_.getMatRef(n));
+    }
+}
+
 class OpenCLBackendWrapper : public BackendWrapper
 {
 public:
@@ -256,12 +283,12 @@ public:
     ~OpenCLBackendWrapper() {}
 
     // Copies data from device to a host memory.
-    virtual void copyToHost()
+    virtual void copyToHost() CV_OVERRIDE
     {
         umat.copyTo(*host);
     }
 
-    virtual void setHostDirty()
+    virtual void setHostDirty() CV_OVERRIDE
     {
         hostDirty = true;
     };
@@ -312,7 +339,7 @@ struct LayerPin
 
 struct LayerData
 {
-    LayerData() : id(-1), flag(0) {}
+    LayerData() : id(-1), skip(false), flag(0) {}
     LayerData(int _id, const String &_name, const String &_type, LayerParams &_params)
         : id(_id), name(_name), type(_type), params(_params), skip(false), flag(0)
     {
@@ -368,11 +395,11 @@ struct LayerData
 //fake layer containing network input blobs
 struct DataLayer : public Layer
 {
-    void finalize(const std::vector<Mat*>&, std::vector<Mat>&) {}
-    void forward(std::vector<Mat*>&, std::vector<Mat>&, std::vector<Mat> &) {}
-    void forward(InputArrayOfArrays inputs, OutputArrayOfArrays outputs, OutputArrayOfArrays internals) {}
+    void finalize(const std::vector<Mat*>&, std::vector<Mat>&) CV_OVERRIDE {}
+    void forward(std::vector<Mat*>&, std::vector<Mat>&, std::vector<Mat> &) CV_OVERRIDE {}
+    void forward(InputArrayOfArrays inputs, OutputArrayOfArrays outputs, OutputArrayOfArrays internals) CV_OVERRIDE {}
 
-    int outputNameToIndex(String tgtName)
+    int outputNameToIndex(const String& tgtName) CV_OVERRIDE
     {
         int idx = (int)(std::find(outNames.begin(), outNames.end(), tgtName) - outNames.begin());
         return (idx < (int)outNames.size()) ? idx : -1;
@@ -386,14 +413,13 @@ struct DataLayer : public Layer
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const
+                         std::vector<MatShape> &internals) const CV_OVERRIDE
     {
         CV_Assert(inputs.size() == requiredOutputs);
         outputs.assign(inputs.begin(), inputs.end());
         return false;
     }
 
-private:
     std::vector<String> outNames;
 };
 
@@ -471,9 +497,9 @@ public:
         }
     }
 
-    void reuseOrCreate(const MatShape& shape, const LayerPin& lp, Mat& dst)
+    void reuseOrCreate(const MatShape& shape, const LayerPin& lp, Mat& dst, bool forceCreate)
     {
-        if (!DNN_DISABLE_MEMORY_OPTIMIZATIONS)
+        if (!DNN_DISABLE_MEMORY_OPTIMIZATIONS && !forceCreate)
         {
             Mat bestBlob;
             LayerPin bestBlobPin;
@@ -518,7 +544,8 @@ public:
     }
 
     void allocateBlobsForLayer(LayerData &ld, const LayerShapes& layerShapes,
-                               std::vector<LayerPin>& pinsForInternalBlobs)
+                               std::vector<LayerPin>& pinsForInternalBlobs,
+                               bool forceCreate = false)
     {
         CV_TRACE_FUNCTION();
 
@@ -589,7 +616,7 @@ public:
                         reuse(ld.inputBlobsId[0], blobPin);
                     }
                     else
-                        reuseOrCreate(shapes[index], blobPin, *blobs[index]);
+                        reuseOrCreate(shapes[index], blobPin, *blobs[index], forceCreate);
                 }
             }
         }
@@ -639,6 +666,13 @@ static Ptr<BackendWrapper> wrapMat(int backendId, int targetId, cv::Mat& m)
         return Ptr<BackendWrapper>(new HalideBackendWrapper(targetId, m));
 #endif  // HAVE_HALIDE
     }
+    else if (backendId == DNN_BACKEND_INFERENCE_ENGINE)
+    {
+        CV_Assert(haveInfEngine());
+#ifdef HAVE_INF_ENGINE
+        return Ptr<BackendWrapper>(new InfEngineBackendWrapper(targetId, m));
+#endif  // HAVE_INF_ENGINE
+    }
     else
         CV_Error(Error::StsNotImplemented, "Unknown backend identifier");
     return Ptr<BackendWrapper>();
@@ -665,10 +699,10 @@ struct Net::Impl
         fusion = true;
         preferableBackend = DNN_BACKEND_DEFAULT;
         preferableTarget = DNN_TARGET_CPU;
+        skipInfEngineInit = false;
     }
 
     Ptr<DataLayer> netInputLayer;
-    std::vector<int> netOutputs;
     std::vector<LayerPin> blobsToKeep;
     MapIdToLayerData layers;
     std::map<String, int> layerNameToId;
@@ -676,6 +710,7 @@ struct Net::Impl
     int preferableBackend;
     int preferableTarget;
     String halideConfigFile;
+    bool skipInfEngineInit;
     // Map host data to backend specific wrapper.
     std::map<void*, Ptr<BackendWrapper> > backendWrappers;
 
@@ -709,6 +744,10 @@ struct Net::Impl
   #ifdef HAVE_HALIDE
                 return Ptr<BackendWrapper>(new HalideBackendWrapper(baseBuffer, shape));
   #endif  // HAVE_HALIDE
+            }
+            else if (preferableBackend == DNN_BACKEND_INFERENCE_ENGINE)
+            {
+                return wrapMat(preferableBackend, preferableTarget, host);
             }
             else
                 CV_Error(Error::StsNotImplemented, "Unknown backend identifier");
@@ -808,10 +847,16 @@ struct Net::Impl
 
         if (!netWasAllocated || this->blobsToKeep != blobsToKeep_)
         {
+#ifndef HAVE_OPENCL
+            if (preferableBackend == DNN_BACKEND_DEFAULT && preferableTarget == DNN_TARGET_OPENCL)
+            {
+                CV_LOG_WARNING(NULL, "DNN: OpenCL target is not available in this OpenCV build, switching to CPU.")
+                preferableTarget = DNN_TARGET_CPU;
+            }
+#endif
             clear();
 
             allocateLayers(blobsToKeep_);
-            computeNetOutputLayers();
             initBackend();
 
             if (!netWasAllocated )
@@ -873,7 +918,7 @@ struct Net::Impl
         int id = getLayerId(layerName);
 
         if (id < 0)
-            CV_Error(Error::StsError, "Requsted layer \"" + layerName + "\" not found");
+            CV_Error(Error::StsError, "Requested layer \"" + layerName + "\" not found");
 
         return getLayerData(id);
     }
@@ -973,38 +1018,23 @@ struct Net::Impl
         ldOut.consumers.push_back(LayerPin(inLayerId, outNum));
     }
 
-    void computeNetOutputLayers()
-    {
-        CV_TRACE_FUNCTION();
-
-        netOutputs.clear();
-
-        MapIdToLayerData::iterator it;
-        for (it = layers.begin(); it != layers.end(); it++)
-        {
-            int lid = it->first;
-            LayerData &ld = it->second;
-
-            if (ld.requiredOutputs.size() == 0)
-                netOutputs.push_back(lid);
-        }
-
-        #ifndef NDEBUG
-        std::cout << "\nNet Outputs(" << netOutputs.size() << "):\n";
-        for (size_t i = 0; i < netOutputs.size(); i++)
-            std::cout << layers[netOutputs[i]].name << "\n";
-        #endif
-    }
-
     void initBackend()
     {
         CV_TRACE_FUNCTION();
-
         if (preferableBackend == DNN_BACKEND_DEFAULT)
-        {
             CV_Assert(preferableTarget == DNN_TARGET_CPU || preferableTarget == DNN_TARGET_OPENCL);
-            return;
-        }
+        else if (preferableBackend == DNN_BACKEND_HALIDE)
+            initHalideBackend();
+        else if (preferableBackend == DNN_BACKEND_INFERENCE_ENGINE)
+            initInfEngineBackend();
+        else
+            CV_Error(Error::StsNotImplemented, "Unknown backend identifier");
+    }
+
+    void initHalideBackend()
+    {
+        CV_TRACE_FUNCTION();
+        CV_Assert(preferableBackend == DNN_BACKEND_HALIDE, haveHalide());
 
         // Iterator to current layer.
         MapIdToLayerData::iterator it = layers.begin();
@@ -1050,17 +1080,207 @@ struct Net::Impl
             }
             // No layers fusion.
             ldTop.skip = false;
-            if (preferableBackend == DNN_BACKEND_HALIDE)
+            ldTop.backendNodes[DNN_BACKEND_HALIDE] =
+                layerTop->initHalide(ldTop.inputBlobsWrappers);
+            baseIt = it;
+        }
+    }
+
+#ifdef HAVE_INF_ENGINE
+    // Before launching Inference Engine graph we need to specify output blobs.
+    // This function requests output blobs based on inputs references of
+    // layers from default backend or layers from different graphs.
+    void addInfEngineNetOutputs(LayerData &ld)
+    {
+        Ptr<InfEngineBackendNet> layerNet;
+        if (ld.backendNodes.find(preferableBackend) != ld.backendNodes.end())
+        {
+            Ptr<BackendNode> node = ld.backendNodes[preferableBackend];
+            if (!node.empty())
             {
-                ldTop.backendNodes[DNN_BACKEND_HALIDE] =
-                    layerTop->initHalide(ldTop.inputBlobsWrappers);
-                baseIt = it;
-            }
-            else
-            {
-                CV_Error(Error::StsNotImplemented, "Unknown backend identifier");
+                Ptr<InfEngineBackendNode> ieNode = node.dynamicCast<InfEngineBackendNode>();
+                CV_Assert(!ieNode.empty(), !ieNode->net.empty());
+                layerNet = ieNode->net;
             }
         }
+        // For an every input reference we check that it belongs to one of
+        // the Inference Engine backend graphs. Request an output blob if it is.
+        // Do nothing if layer's input is from the same graph.
+        for (int i = 0; i < ld.inputBlobsId.size(); ++i)
+        {
+            LayerData &inpLd = layers[ld.inputBlobsId[i].lid];
+            Ptr<BackendNode> inpNode = inpLd.backendNodes[preferableBackend];
+            if (!inpNode.empty())
+            {
+                Ptr<InfEngineBackendNode> ieInpNode = inpNode.dynamicCast<InfEngineBackendNode>();
+                CV_Assert(!ieInpNode.empty(), !ieInpNode->net.empty());
+                if (layerNet != ieInpNode->net)
+                {
+                    // layerNet is empty or nodes are from different graphs.
+                    ieInpNode->net->addOutput(inpLd.name);
+                }
+            }
+        }
+    }
+#endif  // HAVE_INF_ENGINE
+
+    void initInfEngineBackend()
+    {
+        CV_TRACE_FUNCTION();
+        CV_Assert(preferableBackend == DNN_BACKEND_INFERENCE_ENGINE, haveInfEngine());
+#ifdef HAVE_INF_ENGINE
+        MapIdToLayerData::iterator it;
+        Ptr<InfEngineBackendNet> net;
+
+        if (skipInfEngineInit)
+        {
+            Ptr<BackendNode> node = layers[lastLayerId].backendNodes[preferableBackend];
+            CV_Assert(!node.empty());
+
+            Ptr<InfEngineBackendNode> ieNode = node.dynamicCast<InfEngineBackendNode>();
+            CV_Assert(!ieNode.empty());
+
+            for (it = layers.begin(); it != layers.end(); ++it)
+            {
+                LayerData &ld = it->second;
+
+                for (int i = 0; i < ld.outputBlobsWrappers.size(); ++i)
+                {
+                    InferenceEngine::DataPtr dataPtr = infEngineDataNode(ld.outputBlobsWrappers[i]);
+                    dataPtr->name = ld.id == 0 ? netInputLayer->outNames[i] : ld.name;
+                }
+                ieNode->net->addBlobs(ld.inputBlobsWrappers);
+                ieNode->net->addBlobs(ld.outputBlobsWrappers);
+                ld.skip = true;
+            }
+            layers[lastLayerId].skip = false;
+            ieNode->net->init();
+            return;
+        }
+
+        // Build Inference Engine networks from sets of layers that support this
+        // backend. Split a whole model on several Inference Engine networks if
+        // some of layers is not implemented.
+
+        // Set of all input and output blobs wrappers for current network.
+        std::map<int, Ptr<BackendWrapper> > netBlobsWrappers;
+        for (it = layers.begin(); it != layers.end(); ++it)
+        {
+            LayerData &ld = it->second;
+            ld.skip = true;  // Initially skip all Inference Engine supported layers.
+            Ptr<Layer> layer = ld.layerInstance;
+
+            if (!layer->supportBackend(preferableBackend))
+            {
+                addInfEngineNetOutputs(ld);
+                ld.skip = false;
+                net = Ptr<InfEngineBackendNet>();
+                netBlobsWrappers.clear();
+                continue;
+            }
+
+            // Create a new network if one of inputs from different Inference Engine graph.
+            for (int i = 0; i < ld.inputBlobsId.size(); ++i)
+            {
+                LayerData &inpLd = layers[ld.inputBlobsId[i].lid];
+                Ptr<BackendNode> inpNode = inpLd.backendNodes[preferableBackend];
+                if (!inpNode.empty())
+                {
+                    Ptr<InfEngineBackendNode> ieInpNode = inpNode.dynamicCast<InfEngineBackendNode>();
+                    CV_Assert(!ieInpNode.empty(), !ieInpNode->net.empty());
+                    if (ieInpNode->net != net)
+                    {
+                        net = Ptr<InfEngineBackendNet>();
+                        netBlobsWrappers.clear();
+                        break;
+                    }
+                }
+            }
+
+            // The same blobs wrappers cannot be shared between two Inference Engine
+            // networks because of explicit references between layers and blobs.
+            // So we need to rewrap all the external blobs.
+            for (int i = 0; i < ld.inputBlobsId.size(); ++i)
+            {
+                int lid = ld.inputBlobsId[i].lid;
+                LayerData &inpLd = layers[lid];
+                auto it = netBlobsWrappers.find(lid);
+                if (it == netBlobsWrappers.end())
+                {
+                    ld.inputBlobsWrappers[i] = wrap(*ld.inputBlobs[i]);
+                    auto dataPtr = infEngineDataNode(ld.inputBlobsWrappers[i]);
+                    dataPtr->name = inpLd.name;
+                    netBlobsWrappers[lid] = ld.inputBlobsWrappers[i];
+                }
+                else
+                    ld.inputBlobsWrappers[i] = it->second;
+            }
+            netBlobsWrappers[ld.id] = ld.outputBlobsWrappers[0];
+
+            bool fused = false;
+            Ptr<BackendNode> node;
+            if (!net.empty())
+            {
+                // Try to fuse.
+                bool inPlace = ld.inputBlobsId.size() == 1 && ld.outputBlobs.size() == 1 &&
+                               ld.inputBlobs[0]->data == ld.outputBlobs[0].data;
+                if (inPlace)
+                {
+                    node = layer->tryAttach(layers[ld.inputBlobsId[0].lid].backendNodes[preferableBackend]);
+                    fused = !node.empty();
+                    if (fused)
+                        ld.inputBlobsWrappers = layers[ld.inputBlobsId[0].lid].inputBlobsWrappers;
+                }
+            }
+            else
+                net = Ptr<InfEngineBackendNet>(new InfEngineBackendNet());
+
+            if (!fused)
+            {
+                node = layer->initInfEngine(ld.inputBlobsWrappers);
+            }
+
+            CV_Assert(!node.empty());
+            ld.backendNodes[preferableBackend] = node;
+
+            Ptr<InfEngineBackendNode> ieNode = node.dynamicCast<InfEngineBackendNode>();
+            CV_Assert(!ieNode.empty());
+            ieNode->net = net;
+
+            ieNode->connect(ld.inputBlobsWrappers, ld.outputBlobsWrappers);
+            net->addBlobs(ld.inputBlobsWrappers);
+            net->addBlobs(ld.outputBlobsWrappers);
+
+            if (!fused)
+                net->addLayer(ieNode->layer);
+            addInfEngineNetOutputs(ld);
+        }
+
+        // Initialize all networks.
+        std::set<InfEngineBackendNet> initializedNets;
+        for (MapIdToLayerData::reverse_iterator it = layers.rbegin(); it != layers.rend(); ++it)
+        {
+            LayerData &ld = it->second;
+            if (ld.backendNodes.find(preferableBackend) == ld.backendNodes.end())
+                continue;
+
+            Ptr<BackendNode> node = ld.backendNodes[preferableBackend];
+            if (node.empty())
+                continue;
+
+            Ptr<InfEngineBackendNode> ieNode = node.dynamicCast<InfEngineBackendNode>();
+            if (ieNode.empty())
+                continue;
+
+            CV_Assert(!ieNode->net.empty());
+
+            if (!ieNode->net->isInitialized())
+            {
+                ieNode->net->init();
+                ld.skip = false;
+            }
+        }
+#endif  // HAVE_INF_ENGINE
     }
 
     void allocateLayer(int lid, const LayersShapesMap& layersShapes)
@@ -1117,7 +1337,8 @@ struct Net::Impl
         CV_Assert(layerShapesIt != layersShapes.end());
 
         std::vector<LayerPin> pinsForInternalBlobs;
-        blobManager.allocateBlobsForLayer(ld, layerShapesIt->second, pinsForInternalBlobs);
+        blobManager.allocateBlobsForLayer(ld, layerShapesIt->second, pinsForInternalBlobs,
+                                          preferableBackend == DNN_BACKEND_INFERENCE_ENGINE);
         ld.outputBlobsWrappers.resize(ld.outputBlobs.size());
         for (int i = 0; i < ld.outputBlobs.size(); ++i)
         {
@@ -1166,7 +1387,6 @@ struct Net::Impl
 
         // scan through all the layers. If there is convolution layer followed by the activation layer,
         // we try to embed this activation into the convolution and disable separate execution of the activation
-        std::vector<String> outnames;
         std::set<LayerPin> pinsToKeep(blobsToKeep_.begin(),
                                       blobsToKeep_.end());
         MapIdToLayerData::iterator it;
@@ -1180,8 +1400,6 @@ struct Net::Impl
                 continue;
             }
             printf_(("analyzing %s: %s\n", ld.layerInstance->name.c_str(), ld.layerInstance->type.c_str()));
-            if( ld.consumers.size() == 0 )
-                outnames.push_back(ld.layerInstance->name);
 
             // the optimization #1. try to fuse batch norm, scaling and/or activation layers
             // with the current layer if they follow it. Normally, the are fused with the convolution layer,
@@ -1198,46 +1416,30 @@ struct Net::Impl
             if( ld.consumers.size() == 1 && pinsToKeep.count(LayerPin(lid, 0)) == 0 )
             {
                 LayerData* nextData = &layers[ld.consumers[0].lid];
-                Ptr<BatchNormLayer> nextBNormLayer =
-                    nextData->layerInstance.dynamicCast<BatchNormLayer>();
                 LayerPin lpNext(ld.consumers[0].lid, 0);
-                if( !nextBNormLayer.empty() && pinsToKeep.count(lpNext) == 0 )
+                while (nextData)
                 {
-                    LayerData* bnormData = nextData;
-                    nextData = 0;
-                    if( currLayer->setBatchNorm(nextBNormLayer) )
+                    Ptr<Layer> nextLayer = nextData->layerInstance;
+                    if (currLayer->tryFuse(nextLayer))
                     {
-                        printf_(("\tfused with %s\n", nextBNormLayer->name.c_str()));
-                        bnormData->skip = true;
+                        printf_(("\tfused with %s\n", nextLayer->name.c_str()));
+                        nextData->skip = true;
                         ld.outputBlobs = layers[lpNext.lid].outputBlobs;
                         ld.outputBlobsWrappers = layers[lpNext.lid].outputBlobsWrappers;
-                        if( bnormData->consumers.size() == 1 )
+                        if (nextData->consumers.size() == 1)
                         {
-                            nextData = &layers[bnormData->consumers[0].lid];
-                            lpNext = LayerPin(bnormData->consumers[0].lid, 0);
+                            int nextLayerId = nextData->consumers[0].lid;
+                            nextData = &layers[nextLayerId];
+                            lpNext = LayerPin(nextLayerId, 0);
+                        }
+                        else
+                        {
+                            nextData = 0;
+                            break;
                         }
                     }
-                }
-
-                Ptr<ScaleLayer> nextScaleLayer;
-                if( nextData )
-                    nextScaleLayer = nextData->layerInstance.dynamicCast<ScaleLayer>();
-                if( !nextScaleLayer.empty() && pinsToKeep.count(lpNext) == 0 )
-                {
-                    LayerData* scaleData = nextData;
-                    nextData = 0;
-                    if( currLayer->setScale(nextScaleLayer) )
-                    {
-                        printf_(("\tfused with %s\n", nextScaleLayer->name.c_str()));
-                        scaleData->skip = true;
-                        ld.outputBlobs = layers[lpNext.lid].outputBlobs;
-                        ld.outputBlobsWrappers = layers[lpNext.lid].outputBlobsWrappers;
-                        if( scaleData->consumers.size() == 1 )
-                        {
-                            nextData = &layers[scaleData->consumers[0].lid];
-                            lpNext = LayerPin(scaleData->consumers[0].lid, 0);
-                        }
-                    }
+                    else
+                        break;
                 }
 
                 // For now, OpenCL target support fusion with activation of ReLU/ChannelsPReLU/Power/Tanh
@@ -1246,6 +1448,7 @@ struct Net::Impl
                          nextData &&
                         ((nextData->type == "ReLU") ||
                          (nextData->type == "ChannelsPReLU") ||
+                         (nextData->type == "ReLU6") ||
                          (nextData->type == "TanH") ||
                          (nextData->type == "Power"))) )
                 {
@@ -1266,8 +1469,11 @@ struct Net::Impl
 
                         if ( preferableTarget == DNN_TARGET_OPENCL )
                         {
-                            nextData = &layers[activData->consumers[0].lid];
-                            lpNext = LayerPin(activData->consumers[0].lid, 0);
+                            if ( !activData->consumers.empty() )
+                            {
+                                nextData = &layers[activData->consumers[0].lid];
+                                lpNext = LayerPin(activData->consumers[0].lid, 0);
+                            }
                         }
                     }
                 }
@@ -1564,6 +1770,10 @@ struct Net::Impl
             {
                 forwardHalide(ld.outputBlobsWrappers, node);
             }
+            else if (preferableBackend == DNN_BACKEND_INFERENCE_ENGINE)
+            {
+                forwardInfEngine(node);
+            }
             else
             {
                 CV_Error(Error::StsNotImplemented, "Unknown backend identifier");
@@ -1681,7 +1891,7 @@ struct Net::Impl
         if ((size_t)pin.oid >= ld.outputBlobs.size())
         {
             CV_Error(Error::StsOutOfRange, format("Layer \"%s\" produce only %d outputs, "
-                                           "the #%d was requsted", ld.name.c_str(),
+                                           "the #%d was requested", ld.name.c_str(),
                                            ld.outputBlobs.size(), pin.oid));
         }
         if (preferableTarget != DNN_TARGET_CPU)
@@ -1701,6 +1911,46 @@ struct Net::Impl
 
 Net::Net() : impl(new Net::Impl)
 {
+}
+
+Net Net::readFromModelOptimizer(const String& xml, const String& bin)
+{
+#ifndef HAVE_INF_ENGINE
+    CV_ErrorNoReturn(Error::StsError, "Build OpenCV with Inference Engine to enable loading models from Model Optimizer.");
+#else
+    InferenceEngine::CNNNetReader reader;
+    reader.ReadNetwork(xml);
+    reader.ReadWeights(bin);
+
+    InferenceEngine::CNNNetwork ieNet = reader.getNetwork();
+
+    std::vector<String> inputsNames;
+    for (auto& it : ieNet.getInputsInfo())
+    {
+        inputsNames.push_back(it.first);
+    }
+
+    Net cvNet;
+    cvNet.setInputsNames(inputsNames);
+
+    Ptr<InfEngineBackendNode> backendNode(new InfEngineBackendNode(0));
+    backendNode->net = Ptr<InfEngineBackendNet>(new InfEngineBackendNet(ieNet));
+    for (auto& it : ieNet.getOutputsInfo())
+    {
+        LayerParams lp;
+        int lid = cvNet.addLayer(it.first, "", lp);
+
+        LayerData& ld = cvNet.impl->layers[lid];
+        ld.layerInstance = Ptr<Layer>(new InfEngineBackendLayer(it.second));
+        ld.backendNodes[DNN_BACKEND_INFERENCE_ENGINE] = backendNode;
+
+        cvNet.connect(0, 0, lid, 0);
+    }
+    cvNet.setPreferableBackend(DNN_BACKEND_INFERENCE_ENGINE);
+
+    cvNet.impl->skipInfEngineInit = true;
+    return cvNet;
+#endif  // HAVE_INF_ENGINE
 }
 
 Net::~Net()
@@ -2312,7 +2562,7 @@ int Layer::inputNameToIndex(String)
     return -1;
 }
 
-int Layer::outputNameToIndex(String)
+int Layer::outputNameToIndex(const String&)
 {
     return -1;
 }
@@ -2325,6 +2575,13 @@ bool Layer::supportBackend(int backendId)
 Ptr<BackendNode> Layer::initHalide(const std::vector<Ptr<BackendWrapper> > &)
 {
     CV_Error(Error::StsNotImplemented, "Halide pipeline of " + type +
+                                       " layers is not defined.");
+    return Ptr<BackendNode>();
+}
+
+Ptr<BackendNode> Layer::initInfEngine(const std::vector<Ptr<BackendWrapper> > &)
+{
+    CV_Error(Error::StsNotImplemented, "Inference Engine pipeline of " + type +
                                        " layers is not defined.");
     return Ptr<BackendNode>();
 }
@@ -2404,13 +2661,16 @@ Ptr<BackendNode> Layer::tryAttach(const Ptr<BackendNode>& node)
 }
 
 bool Layer::setActivation(const Ptr<ActivationLayer>&) { return false; }
-bool Layer::setBatchNorm(const Ptr<BatchNormLayer>&) { return false; }
-bool Layer::setScale(const Ptr<ScaleLayer>&) { return false; }
+bool Layer::tryFuse(Ptr<Layer>&) { return false; }
+void Layer::getScaleShift(Mat& scale, Mat& shift) const
+{
+    scale = Mat();
+    shift = Mat();
+}
+
 void Layer::unsetAttached()
 {
     setActivation(Ptr<ActivationLayer>());
-    setBatchNorm(Ptr<BatchNormLayer>());
-    setScale(Ptr<ScaleLayer>());
 }
 
 template <typename T>
@@ -2593,6 +2853,55 @@ BackendWrapper::BackendWrapper(const Ptr<BackendWrapper>& base, const MatShape& 
 }
 
 BackendWrapper::~BackendWrapper() {}
+
+Net readNet(const String& _model, const String& _config, const String& _framework)
+{
+    String framework = _framework.toLowerCase();
+    String model = _model;
+    String config = _config;
+    const std::string modelExt = model.substr(model.rfind('.') + 1);
+    const std::string configExt = config.substr(config.rfind('.') + 1);
+    if (framework == "caffe" || modelExt == "caffemodel" || configExt == "caffemodel" ||
+                                modelExt == "prototxt" || configExt == "prototxt")
+    {
+        if (modelExt == "prototxt" || configExt == "caffemodel")
+            std::swap(model, config);
+        return readNetFromCaffe(config, model);
+    }
+    if (framework == "tensorflow" || modelExt == "pb" || configExt == "pb" ||
+                                     modelExt == "pbtxt" || configExt == "pbtxt")
+    {
+        if (modelExt == "pbtxt" || configExt == "pb")
+            std::swap(model, config);
+        return readNetFromTensorflow(model, config);
+    }
+    if (framework == "torch" || modelExt == "t7" || modelExt == "net" ||
+                                configExt == "t7" || configExt == "net")
+    {
+        return readNetFromTorch(model.empty() ? config : model);
+    }
+    if (framework == "darknet" || modelExt == "weights" || configExt == "weights" ||
+                                  modelExt == "cfg" || configExt == "cfg")
+    {
+        if (modelExt == "cfg" || configExt == "weights")
+            std::swap(model, config);
+        return readNetFromDarknet(config, model);
+    }
+    if (framework == "dldt" || modelExt == "bin" || configExt == "bin" ||
+                               modelExt == "xml" || configExt == "xml")
+    {
+        if (modelExt == "xml" || configExt == "bin")
+            std::swap(model, config);
+        return readNetFromModelOptimizer(config, model);
+    }
+    CV_ErrorNoReturn(Error::StsError, "Cannot determine an origin framework of files: " +
+                                      model + (config.empty() ? "" : ", " + config));
+}
+
+Net readNetFromModelOptimizer(const String &xml, const String &bin)
+{
+    return Net::readFromModelOptimizer(xml, bin);
+}
 
 CV__DNN_EXPERIMENTAL_NS_END
 }} // namespace

@@ -819,25 +819,25 @@ namespace
         {
         }
 
-        virtual Size getWinSize() const {return winSize;}
-        virtual void setWinSize(Size winSize_){winSize = winSize_;}
+        virtual Size getWinSize() const CV_OVERRIDE { return winSize;}
+        virtual void setWinSize(Size winSize_) CV_OVERRIDE { winSize = winSize_;}
 
-        virtual int getMaxLevel() const {return maxLevel;}
-        virtual void setMaxLevel(int maxLevel_){maxLevel = maxLevel_;}
+        virtual int getMaxLevel() const CV_OVERRIDE { return maxLevel;}
+        virtual void setMaxLevel(int maxLevel_) CV_OVERRIDE { maxLevel = maxLevel_;}
 
-        virtual TermCriteria getTermCriteria() const {return criteria;}
-        virtual void setTermCriteria(TermCriteria& crit_){criteria=crit_;}
+        virtual TermCriteria getTermCriteria() const CV_OVERRIDE { return criteria;}
+        virtual void setTermCriteria(TermCriteria& crit_) CV_OVERRIDE { criteria=crit_;}
 
-        virtual int getFlags() const {return flags; }
-        virtual void setFlags(int flags_){flags=flags_;}
+        virtual int getFlags() const CV_OVERRIDE { return flags; }
+        virtual void setFlags(int flags_) CV_OVERRIDE { flags=flags_;}
 
-        virtual double getMinEigThreshold() const {return minEigThreshold;}
-        virtual void setMinEigThreshold(double minEigThreshold_){minEigThreshold=minEigThreshold_;}
+        virtual double getMinEigThreshold() const CV_OVERRIDE { return minEigThreshold;}
+        virtual void setMinEigThreshold(double minEigThreshold_) CV_OVERRIDE { minEigThreshold=minEigThreshold_;}
 
         virtual void calc(InputArray prevImg, InputArray nextImg,
                           InputArray prevPts, InputOutputArray nextPts,
                           OutputArray status,
-                          OutputArray err = cv::noArray());
+                          OutputArray err = cv::noArray()) CV_OVERRIDE;
 
     private:
 #ifdef HAVE_OPENCL
@@ -876,7 +876,7 @@ namespace
             std::vector<UMat> prevPyr; prevPyr.resize(maxLevel + 1);
             std::vector<UMat> nextPyr; nextPyr.resize(maxLevel + 1);
 
-            // allocate buffers with aligned pitch to be able to use cl_khr_image2d_from_buffer extention
+            // allocate buffers with aligned pitch to be able to use cl_khr_image2d_from_buffer extension
             // This is the required pitch alignment in pixels
             int pitchAlign = (int)ocl::Device::getDefault().imagePitchAlignment();
             if (pitchAlign>0)
@@ -886,7 +886,7 @@ namespace
                 for (int level = 1; level <= maxLevel; ++level)
                 {
                     int cols,rows;
-                    // allocate buffers with aligned pitch to be able to use image on buffer extention
+                    // allocate buffers with aligned pitch to be able to use image on buffer extension
                     cols = (prevPyr[level - 1].cols+1)/2;
                     rows = (prevPyr[level - 1].rows+1)/2;
                     prevPyr[level] = UMat(rows,(cols+pitchAlign-1)&(-pitchAlign),prevPyr[level-1].type()).colRange(0,cols);

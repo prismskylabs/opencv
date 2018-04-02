@@ -44,7 +44,7 @@
 
 #include <memory>
 
-#include <window_QT.h>
+#include "window_QT.h"
 
 #include <math.h>
 
@@ -1596,7 +1596,7 @@ void CvWinProperties::showEvent(QShowEvent* evnt)
 {
     //why -1,-1 ?: do this trick because the first time the code is run,
     //no value pos was saved so we let Qt move the window in the middle of its parent (event ignored).
-    //then hide will save the last position and thus, we want to retreive it (event accepted).
+    //then hide will save the last position and thus, we want to retrieve it (event accepted).
     QPoint mypos(-1, -1);
     QSettings settings("OpenCV2", objectName());
     mypos = settings.value("pos", mypos).toPoint();
@@ -3094,6 +3094,11 @@ void DefaultViewPort::drawImgRegion(QPainter *painter)
             if (nbChannelOriginImage==CV_8UC1)
             {
                 QString val = tr("%1").arg(qRed(rgbValue));
+                int pixel_brightness_value = qRed(rgbValue);
+                int text_brightness_value = 0;
+
+                text_brightness_value = pixel_brightness_value > 127 ? pixel_brightness_value - 127 : 127 + pixel_brightness_value;
+                painter->setPen(QPen(QColor(text_brightness_value, text_brightness_value, text_brightness_value)));
                 painter->drawText(QRect(pos_in_view.x(),pos_in_view.y(),pixel_width,pixel_height),
                     Qt::AlignCenter, val);
             }

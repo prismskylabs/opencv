@@ -41,17 +41,12 @@
 
 #include "test_precomp.hpp"
 #include <opencv2/core/ocl.hpp>
-#include <iostream>
 #include "npy_blob.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
 #include <opencv2/dnn/all_layers.hpp>
 #include <opencv2/ts/ocl_test.hpp>
 
-namespace cvtest
-{
-
-using namespace cv;
-using namespace cv::dnn;
+namespace opencv_test { namespace {
 
 template<typename TString>
 static String _tf(TString filename)
@@ -65,13 +60,13 @@ static String _tf(TString filename)
 
 void runLayer(Ptr<Layer> layer, std::vector<Mat> &inpBlobs, std::vector<Mat> &outBlobs)
 {
-    size_t i, ninputs = inpBlobs.size();
+    size_t ninputs = inpBlobs.size();
     std::vector<Mat> inp_(ninputs);
     std::vector<Mat*> inp(ninputs);
     std::vector<Mat> outp, intp;
     std::vector<MatShape> inputs, outputs, internals;
 
-    for( i = 0; i < ninputs; i++ )
+    for (size_t i = 0; i < ninputs; i++)
     {
         inp_[i] = inpBlobs[i].clone();
         inp[i] = &inp_[i];
@@ -79,11 +74,11 @@ void runLayer(Ptr<Layer> layer, std::vector<Mat> &inpBlobs, std::vector<Mat> &ou
     }
 
     layer->getMemoryShapes(inputs, 0, outputs, internals);
-    for(int i = 0; i < outputs.size(); i++)
+    for (size_t i = 0; i < outputs.size(); i++)
     {
         outp.push_back(Mat(outputs[i], CV_32F));
     }
-    for(int i = 0; i < internals.size(); i++)
+    for (size_t i = 0; i < internals.size(); i++)
     {
         intp.push_back(Mat(internals[i], CV_32F));
     }
@@ -93,7 +88,7 @@ void runLayer(Ptr<Layer> layer, std::vector<Mat> &inpBlobs, std::vector<Mat> &ou
 
     size_t noutputs = outp.size();
     outBlobs.resize(noutputs);
-    for( i = 0; i < noutputs; i++ )
+    for (size_t i = 0; i < noutputs; i++)
         outBlobs[i] = outp[i];
 }
 
@@ -257,6 +252,11 @@ TEST(Layer_Test_BatchNorm, Accuracy)
     testLayerUsingCaffeModels("layer_batch_norm", DNN_TARGET_CPU, true);
 }
 
+TEST(Layer_Test_BatchNorm, local_stats)
+{
+    testLayerUsingCaffeModels("layer_batch_norm_local_stats", DNN_TARGET_CPU, true, false);
+}
+
 TEST(Layer_Test_ReLU, Accuracy)
 {
     testLayerUsingCaffeModels("layer_relu");
@@ -367,10 +367,13 @@ OCL_TEST(Layer_Test_PReLU, Accuracy)
 //    );
 //}
 
-static void test_Reshape_Split_Slice_layers()
+static void test_Reshape_Split_Slice_layers(int targetId)
 {
     Net net = readNetFromCaffe(_tf("reshape_and_slice_routines.prototxt"));
     ASSERT_FALSE(net.empty());
+
+    net.setPreferableBackend(DNN_BACKEND_DEFAULT);
+    net.setPreferableTarget(targetId);
 
     Mat input(6, 12, CV_32F);
     RNG rng(0);
@@ -384,7 +387,12 @@ static void test_Reshape_Split_Slice_layers()
 
 TEST(Layer_Test_Reshape_Split_Slice, Accuracy)
 {
-    test_Reshape_Split_Slice_layers();
+    test_Reshape_Split_Slice_layers(DNN_TARGET_CPU);
+}
+
+OCL_TEST(Layer_Test_Reshape_Split_Slice, Accuracy)
+{
+    test_Reshape_Split_Slice_layers(DNN_TARGET_OPENCL);
 }
 
 TEST(Layer_Conv_Elu, Accuracy)
@@ -803,4 +811,79 @@ INSTANTIATE_TEST_CASE_P(Layer_Test, Crop, Combine(
 /*offset value*/        Values(3, 4)
 ));
 
+// Check that by default average pooling layer should not count zero padded values
+// into the normalization area.
+TEST(Layer_Test_Average_pooling_kernel_area, Accuracy)
+{
+    LayerParams lp;
+    lp.name = "testAvePool";
+    lp.type = "Pooling";
+    lp.set("kernel_size", 2);
+    lp.set("stride", 2);
+    lp.set("pool", "AVE");
+
+    Net net;
+    net.addLayerToPrev(lp.name, lp.type, lp);
+    // 1 2 | 3
+    // 4 5 | 6
+    // ----+--
+    // 7 8 | 9
+    Mat inp = (Mat_<float>(3, 3) << 1, 2, 3, 4, 5, 6, 7, 8, 9);
+    Mat target = (Mat_<float>(2, 2) << (1 + 2 + 4 + 5) / 4.f, (3 + 6) / 2.f, (7 + 8) / 2.f, 9);
+    Mat tmp = blobFromImage(inp);
+    net.setInput(blobFromImage(inp));
+    Mat out = net.forward();
+    normAssert(out, blobFromImage(target));
 }
+
+// Test PriorBoxLayer in case of no aspect ratios (just squared proposals).
+TEST(Layer_PriorBox, squares)
+{
+    LayerParams lp;
+    lp.name = "testPriorBox";
+    lp.type = "PriorBox";
+    lp.set("min_size", 2);
+    lp.set("flip", true);
+    lp.set("clip", true);
+    float variance[] = {0.1f, 0.1f, 0.2f, 0.2f};
+    float aspectRatios[] = {1.0f};  // That should be ignored.
+    lp.set("variance", DictValue::arrayReal<float*>(&variance[0], 4));
+    lp.set("aspect_ratio", DictValue::arrayReal<float*>(&aspectRatios[0], 1));
+
+    Net net;
+    int id = net.addLayerToPrev(lp.name, lp.type, lp);
+    net.connect(0, 0, id, 1);  // The second input is an input image. Shapes are used for boxes normalization.
+    Mat inp(1, 2, CV_32F);
+    randu(inp, -1, 1);
+    net.setInput(blobFromImage(inp));
+    Mat out = net.forward();
+
+    Mat target = (Mat_<float>(4, 4) << 0.0, 0.0, 0.75, 1.0,
+                                       0.25, 0.0, 1.0, 1.0,
+                                       0.1f, 0.1f, 0.2f, 0.2f,
+                                       0.1f, 0.1f, 0.2f, 0.2f);
+    normAssert(out.reshape(1, 4), target);
+}
+
+#ifdef HAVE_INF_ENGINE
+// Using Intel's Model Optimizer generate .xml and .bin files:
+// ./ModelOptimizer -w /path/to/caffemodel -d /path/to/prototxt \
+//                  -p FP32 -i -b ${batch_size} -o /path/to/output/folder
+TEST(Layer_Test_Convolution_DLDT, Accuracy)
+{
+    Net netDefault = readNet(_tf("layer_convolution.caffemodel"), _tf("layer_convolution.prototxt"));
+    Net net = readNet(_tf("layer_convolution.xml"), _tf("layer_convolution.bin"));
+
+    Mat inp = blobFromNPY(_tf("blob.npy"));
+
+    netDefault.setInput(inp);
+    Mat outDefault = netDefault.forward();
+
+    net.setInput(inp);
+    Mat out = net.forward();
+
+    normAssert(outDefault, out);
+}
+#endif  // HAVE_INF_ENGINE
+
+}} // namespace

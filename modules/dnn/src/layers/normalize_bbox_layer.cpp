@@ -45,7 +45,7 @@
 
 namespace cv { namespace dnn {
 
-class NormalizeBBoxLayerImpl : public NormalizeBBoxLayer
+class NormalizeBBoxLayerImpl CV_FINAL : public NormalizeBBoxLayer
 {
 public:
     NormalizeBBoxLayerImpl(const LayerParams& params)
@@ -60,7 +60,7 @@ public:
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
                          const int requiredOutputs,
                          std::vector<MatShape> &outputs,
-                         std::vector<MatShape> &internals) const
+                         std::vector<MatShape> &internals) const CV_OVERRIDE
     {
         CV_Assert(inputs.size() == 1);
         Layer::getMemoryShapes(inputs, requiredOutputs, outputs, internals);
@@ -105,6 +105,18 @@ public:
                 float norm = pow(absSum, 1.0f / pnorm);
                 multiply(src, 1.0f / norm, dst);
             }
+            else
+            {
+                Mat norm;
+                reduce(buffer, norm, 0, REDUCE_SUM);
+                norm += epsilon;
+
+                // compute inverted norm to call multiply instead divide
+                cv::pow(norm, -1.0f / pnorm, norm);
+
+                repeat(norm, channels, 1, buffer);
+                multiply(src, buffer, dst);
+            }
 
             if (!blobs.empty())
             {
@@ -128,7 +140,7 @@ public:
     }
 #endif
 
-    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr)
+    void forward(InputArrayOfArrays inputs_arr, OutputArrayOfArrays outputs_arr, OutputArrayOfArrays internals_arr) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
@@ -140,7 +152,7 @@ public:
         Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
     }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals)
+    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
     {
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
